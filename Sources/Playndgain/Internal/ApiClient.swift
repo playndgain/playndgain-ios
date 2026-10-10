@@ -43,6 +43,12 @@ final class ApiClient {
             switch result {
             case .failure(let e): DispatchQueue.main.async { done(.failure(e)) }
             case .success(let sig):
+                // The query carries appid, userid and sig: https only, except
+                // a loopback wall for local testing (same rule as clicks).
+                guard Links.isAllowedBase(Playndgain.config.baseURL) else {
+                    DispatchQueue.main.async { done(.failure(.internal)) }
+                    return
+                }
                 guard var comps = URLComponents(url: Playndgain.config.baseURL.appendingPathComponent("sdk/v1/" + path), resolvingAgainstBaseURL: false) else {
                     DispatchQueue.main.async { done(.failure(.internal)) }
                     return
@@ -151,7 +157,8 @@ enum ImageLoader {
         guard let url = url, Links.isWebURL(url) else { done(nil); return }
         if let hit = cache.object(forKey: url as NSURL) { done(hit); return }
         session.dataTask(with: url) { data, _, _ in
-            let img = data.flatMap(UIImage.init(data:))
+            // Icons are small; anything bigger is not an icon and is not decoded.
+            let img = data.flatMap { $0.count <= 2 * 1024 * 1024 ? UIImage(data: $0) : nil }
             if let img = img { cache.setObject(img, forKey: url as NSURL) }
             DispatchQueue.main.async { done(img) }
         }.resume()
@@ -164,6 +171,16 @@ enum Links {
     static func isWebURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), url.host?.isEmpty == false else { return false }
         return scheme == "https" || scheme == "http"
+    }
+
+    /// The wall itself: `https`, or plain http to a loopback host only.
+    static func isAllowedBase(_ base: URL) -> Bool {
+        guard let host = base.host?.lowercased(), !host.isEmpty else { return false }
+        switch base.scheme?.lowercased() {
+        case "https": return true
+        case "http": return ["localhost", "127.0.0.1", "::1"].contains(host)
+        default: return false
+        }
     }
 
     /// Clicks leave the app only for `https` on the wall's own host. Plain http

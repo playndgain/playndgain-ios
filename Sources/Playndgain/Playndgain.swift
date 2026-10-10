@@ -25,8 +25,10 @@ public enum Playndgain {
     /// Held weakly, like any UIKit delegate.
     public static weak var delegate: PlayndgainDelegate?
 
-    /// Idempotent. A different app id resets the user.
+    /// Idempotent. A different app id resets the user. Safe from any thread:
+    /// every public call runs on the main thread, which owns all SDK state.
     public static func initialize(appId: String, config: PlayndgainConfig = .init()) {
+        guard Thread.isMainThread else { DispatchQueue.main.async { initialize(appId: appId, config: config) }; return }
         let clean = appId.trimmingCharacters(in: .whitespacesAndNewlines)
         if let current = self.appId, current != clean { reset() }
         self.appId = clean
@@ -35,6 +37,7 @@ public enum Playndgain {
 
     /// Your own opaque, stable identifier: letters, digits and `_ - . @ : |`, at most 191 characters.
     public static func setUser(_ userId: String, signatureProvider: @escaping SignatureProvider) {
+        guard Thread.isMainThread else { DispatchQueue.main.async { setUser(userId, signatureProvider: signatureProvider) }; return }
         guard Validation.isUserId(userId) else {
             // Never keep showing the previous player's wall after a rejected id.
             reset()
@@ -48,6 +51,7 @@ public enum Playndgain {
 
     /// Presents the wall full screen from `presenter`, or from the top-most view controller.
     public static func show(from presenter: UIViewController? = nil, options: PlayndgainOptions = .init()) {
+        guard Thread.isMainThread else { DispatchQueue.main.async { show(from: presenter, options: options) }; return }
         guard let appId = appId, !appId.isEmpty else { emit(.notInitialized); return }
         guard userId != nil, signatureProvider != nil else { emit(.userNotSet); return }
         guard options.subIds.count <= 5, options.subIds.allSatisfy(Validation.isSubId) else { emit(.invalidSubId); return }
@@ -61,6 +65,7 @@ public enum Playndgain {
 
     /// Forgets the user and the provider. Call it when the player logs out.
     public static func reset() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { reset() }; return }
         userId = nil
         signatureProvider = nil
         userEpoch += 1

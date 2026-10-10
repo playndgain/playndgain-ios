@@ -96,7 +96,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         switch result {
         case .failure(let e):
             Playndgain.emit(e)
-            e == .network ? showOffline() : showNotice(nil)
+            e == .network ? showOffline() : showNotice(nil, retry: true)
         case .success(let r):
             if let e = r.error { Playndgain.emit(e) }
             render(r)
@@ -104,6 +104,14 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     private func render(_ r: WallResponse) {
+        // Every screen below needs the app's theme and header. An envelope
+        // without it has nothing to draw: report it, and offer retry and close.
+        if r.app == nil, ["ok", "unplaced", "consent_required"].contains(r.status) {
+            strings = r.strings
+            Playndgain.emit(.wallUnavailable)
+            showNotice(nil, retry: true)
+            return
+        }
         last = r
         strings = r.strings
         if let app = r.app {
@@ -546,13 +554,21 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             guard let self = self else { return }
             self.openingDetail = false
             guard self.presentedViewController == nil, self.viewIfLoaded?.window != nil else { return }
+            let r: WallResponse
             switch result {
-            case .failure(let e): Playndgain.emit(e)
-            case .success(let r):
+            case .failure(let e):
+                // A tap must never look dead: the sheet says it failed.
+                Playndgain.emit(e)
+                r = WallResponse(status: "unavailable", http: 0, app: nil, strings: self.strings, notice: nil)
+            case .success(let ok):
+                r = ok
                 if let e = r.error { Playndgain.emit(e) }
-                // Never asked (the answer was reset since the list loaded): ask now.
-                if r.status == "consent_required" { self.showConsent(); return }
-                let sheet = DetailViewController(response: r, palette: self.palette, strings: r.strings, currency: self.last?.app?.currencyName ?? "") { [weak self] url in
+            }
+            do {
+                // Never asked (the answer was reset since the list loaded): ask
+                // now, and retire any page load in flight so it cannot replace it.
+                if r.status == "consent_required" { _ = self.gate.next(); self.showConsent(); return }
+                let sheet = DetailViewController(response: r, palette: self.palette, strings: r.strings.root == nil ? self.strings : r.strings, currency: self.last?.app?.currencyName ?? "") { [weak self] url in
                     self?.dismiss(animated: true) { self?.startOffer(url) }
                 }
                 if #available(iOS 15.0, *), let s = sheet.sheetPresentationController {
@@ -692,34 +708,51 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         stack.addArrangedSubview(scroll)
     }
 
-    private func showNotice(_ r: WallResponse?) {
+    /// Bundled text for screens drawn before, or without, the server's strings.
+    private var arabic: Bool { (options.language ?? Locale.preferredLanguages.first ?? "en").hasPrefix("ar") }
+    private var closeLabel: String { strings.or("offer.close", arabic ? "إغلاق" : "Close") }
+    private var retryLabel: String { arabic ? "حاول مرة أخرى" : "Try again" }
+
+    /// A full-page notice. A refusal from the wall gets Close; a failure that
+    /// can pass (unavailable, rate limited, a bad answer) also gets Try again.
+    /// Close is always there: the wall is a full-screen modal with no other exit.
+    private func showNotice(_ r: WallResponse?, retry: Bool = false) {
         let title: String, body: String
-        if let n = r?.notice { title = n.title; body = n.body }
-        else { title = strings.or("notice.unavailable.title", "Offerwall unavailable"); body = strings["notice.unavailable.body"] }
-        centered(title, body, action: strings.or("offer.close", "Close"), filled: false) { [weak self] in self?.closeTapped() }
+        if let n = r?.notice, !(n.title.isEmpty && n.body.isEmpty) { title = n.title; body = n.body }
+        else {
+            title = strings.or("notice.unavailable.title", arabic ? "العروض غير متاحة" : "Offers unavailable")
+            body = strings.or("notice.unavailable.body", arabic ? "لا يمكن عرض العروض الآن. يرجى المحاولة لاحقا." : "Offers cannot be shown right now. Please try again later.")
+        }
+        var buttons: [(String, Bool, () -> Void)] = []
+        if retry || r?.status == "rate_limited" { buttons.append((retryLabel, true, { [weak self] in self?.showLoading(); self?.load() })) }
+        buttons.append((closeLabel, false, { [weak self] in self?.closeTapped() }))
+        centered(title, body, buttons)
     }
 
     private func showOffline() {
-        let ar = (options.language ?? Locale.preferredLanguages.first ?? "en").hasPrefix("ar")
-        centered(ar ? "أنت غير متصل" : "You are offline",
-                 ar ? "تحقق من اتصالك ثم حاول مرة أخرى." : "Check your connection and try again.",
-                 action: ar ? "حاول مرة أخرى" : "Try again", filled: true) { [weak self] in self?.showLoading(); self?.load() }
+        centered(arabic ? "أنت غير متصل" : "You are offline",
+                 arabic ? "تحقق من اتصالك ثم حاول مرة أخرى." : "Check your connection and try again.",
+                 [(retryLabel, true, { [weak self] in self?.showLoading(); self?.load() }),
+                  (closeLabel, false, { [weak self] in self?.closeTapped() })])
     }
 
-    private func centered(_ title: String, _ body: String, action: String, filled: Bool, _ tap: @escaping () -> Void) {
+    private func centered(_ title: String, _ body: String, _ actions: [(String, Bool, () -> Void)]) {
         clear()
         let p = palette
         let t = UILabel(title, 19, 700, p.text, lines: 0); t.textAlignment = .center
         let b = UILabel(body, 14, 400, p.muted, lines: 0); b.textAlignment = .center
-        let btn = UIButton(type: .custom)
-        btn.setTitle(action, for: .normal)
-        btn.titleLabel?.font = Fonts.font(14, 600)
-        btn.setTitleColor(filled ? p.onPrimary : p.text, for: .normal)
-        _ = filled ? btn.rounded(p.primary, 24) : btn.rounded(p.card, 24, border: p.line)
-        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 28, bottom: 0, right: 28)
-        btn.heightAnchor.constraint(equalToConstant: 48).isActive = true
-        btn.addAction(for: .touchUpInside, tap)
-        let col = UIStackView(arrangedSubviews: [t, b, btn])
+        let col = UIStackView(arrangedSubviews: [t, b])
+        for (label, filled, tap) in actions {
+            let btn = UIButton(type: .custom)
+            btn.setTitle(label, for: .normal)
+            btn.titleLabel?.font = Fonts.font(14, 600)
+            btn.setTitleColor(filled ? p.onPrimary : p.text, for: .normal)
+            _ = filled ? btn.rounded(p.primary, 24) : btn.rounded(p.card, 24, border: p.line)
+            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 28, bottom: 0, right: 28)
+            btn.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            btn.addAction(for: .touchUpInside, tap)
+            col.addArrangedSubview(btn)
+        }
         col.axis = .vertical
         col.alignment = .center
         col.spacing = 10

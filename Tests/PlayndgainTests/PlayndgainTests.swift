@@ -213,6 +213,15 @@ final class GuardTests: XCTestCase {
         XCTAssertTrue(gate.isCurrent(newer))
     }
 
+    func testTheWallBaseIsHttpsOrLoopback() {
+        XCTAssertTrue(Links.isAllowedBase(URL(string: "https://wall.playndgain.com")!))
+        XCTAssertTrue(Links.isAllowedBase(URL(string: "HTTPS://wall.playndgain.com")!))
+        XCTAssertTrue(Links.isAllowedBase(URL(string: "http://localhost:8765")!))
+        XCTAssertFalse(Links.isAllowedBase(URL(string: "http://wall.playndgain.com")!))
+        XCTAssertFalse(Links.isAllowedBase(URL(string: "HTTP://wall.playndgain.com")!))
+        XCTAssertFalse(Links.isAllowedBase(URL(string: "ftp://wall.playndgain.com")!))
+    }
+
     func testClicksAndIconsOnlyFollowWebUrls() {
         let prod = URL(string: "https://wall.playndgain.com")!
         XCTAssertTrue(Links.isAllowedClick(URL(string: "https://wall.playndgain.com/click/1?x=1")!, base: prod))

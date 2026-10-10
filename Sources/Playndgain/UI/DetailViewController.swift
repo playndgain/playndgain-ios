@@ -27,8 +27,12 @@ final class DetailViewController: UIViewController {
         view.semanticContentAttribute = Fonts.rtl ? .forceRightToLeft : .forceLeftToRight
 
         guard response.status == "ok", let d = response.detail else {
+            // Always says something: the server's notice, else its strings.
             let n = response.notice
-            let col = UIStackView(arrangedSubviews: [UILabel(n?.title, 17, 700, p.text, lines: 0), UILabel(n?.body, 13.5, 400, p.muted, lines: 0)])
+            let hasNotice = !(n?.title.isEmpty ?? true) || !(n?.body.isEmpty ?? true)
+            let title = hasNotice ? n?.title : strings.or("notice.unavailable.title", "Offers unavailable")
+            let body = hasNotice ? n?.body : strings.or("notice.unavailable.body", "Offers cannot be shown right now. Please try again later.")
+            let col = UIStackView(arrangedSubviews: [UILabel(title, 17, 700, p.text, lines: 0), UILabel(body, 13.5, 400, p.muted, lines: 0)])
             col.axis = .vertical
             col.spacing = 8
             place(col, in: view, top: 32)
