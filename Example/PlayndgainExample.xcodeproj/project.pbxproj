@@ -1,0 +1,44 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 60;
+	objects = {
+
+		0000000000000000000B2000 = {isa = PBXBuildFile; fileRef = 0000000000000000000B2001; };
+		0000000000000000000B2001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallUITests.swift; sourceTree = "<group>"; };
+		0000000000000000000B2002 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlayndgainExampleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		0000000000000000000B2003 = {isa = PBXGroup; children = (0000000000000000000B2001, ); path = PlayndgainExampleUITests; sourceTree = "<group>"; };
+		0000000000000000000B2005 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (0000000000000000000B2000, ); runOnlyForDeploymentPostprocessing = 0; };
+		0000000000000000000B2006 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		0000000000000000000B2007 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		0000000000000000000B2009 = {isa = PBXContainerItemProxy; containerPortal = 0000000000000000000A1000; proxyType = 1; remoteGlobalIDString = 0000000000000000000A1009; remoteInfo = PlayndgainExample; };
+		0000000000000000000B2008 = {isa = PBXTargetDependency; target = 0000000000000000000A1009; targetProxy = 0000000000000000000B2009; };
+		0000000000000000000B2004 = {isa = PBXNativeTarget; buildConfigurationList = 0000000000000000000B200A; buildPhases = (0000000000000000000B2005, 0000000000000000000B2006, 0000000000000000000B2007, ); buildRules = (); dependencies = (0000000000000000000B2008, ); name = PlayndgainExampleUITests; productName = PlayndgainExampleUITests; productReference = 0000000000000000000B2002; productType = "com.apple.product-type.bundle.ui-testing"; };
+		0000000000000000000B200B = {isa = XCBuildConfiguration; buildSettings = { GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.playndgain.example.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = PlayndgainExample; CODE_SIGNING_ALLOWED = NO; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		0000000000000000000B200C = {isa = XCBuildConfiguration; buildSettings = { GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = com.playndgain.example.uitests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_TARGET_NAME = PlayndgainExample; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+		0000000000000000000B200A = {isa = XCConfigurationList; buildConfigurations = (0000000000000000000B200B, 0000000000000000000B200C, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		0000000000000000000A1005 /* ExampleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000A1006; };
+		0000000000000000000A100F /* Playndgain in Frameworks */ = {isa = PBXBuildFile; productRef = 0000000000000000000A100E; };
+		0000000000000000000A1006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleApp.swift; sourceTree = "<group>"; };
+		0000000000000000000A1007 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0000000000000000000A1008 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlayndgainExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0000000000000000000A100B = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (0000000000000000000A100F, ); runOnlyForDeploymentPostprocessing = 0; };
+		0000000000000000000A100A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (0000000000000000000A1005, ); runOnlyForDeploymentPostprocessing = 0; };
+		0000000000000000000A100C = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		0000000000000000000A1001 = {isa = PBXGroup; children = (0000000000000000000B2003, 0000000000000000000A1004, 0000000000000000000A1003, ); sourceTree = "<group>"; };
+		0000000000000000000A1004 = {isa = PBXGroup; children = (0000000000000000000A1006, 0000000000000000000A1007, ); path = PlayndgainExample; sourceTree = "<group>"; };
+		0000000000000000000A1003 = {isa = PBXGroup; children = (0000000000000000000B2002, 0000000000000000000A1008, ); name = Products; sourceTree = "<group>"; };
+		0000000000000000000A1009 = {isa = PBXNativeTarget; buildConfigurationList = 0000000000000000000A1011; buildPhases = (0000000000000000000A100A, 0000000000000000000A100B, 0000000000000000000A100C, ); buildRules = (); dependencies = (); name = PlayndgainExample; packageProductDependencies = (0000000000000000000A100E, ); productName = PlayndgainExample; productReference = 0000000000000000000A1008; productType = "com.apple.product-type.application"; };
+		0000000000000000000A1000 = {isa = PBXProject; attributes = { LastUpgradeCheck = 1600; }; buildConfigurationList = 0000000000000000000A1010; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, ar, Base, ); mainGroup = 0000000000000000000A1001; packageReferences = (0000000000000000000A100D, ); productRefGroup = 0000000000000000000A1003; projectDirPath = ""; projectRoot = ""; targets = (0000000000000000000A1009, 0000000000000000000B2004, ); };
+		0000000000000000000A100D = {isa = XCLocalSwiftPackageReference; relativePath = ..; };
+		0000000000000000000A100E = {isa = XCSwiftPackageProductDependency; productName = Playndgain; };
+		0000000000000000000A1012 = {isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; ONLY_ACTIVE_ARCH = YES; ALWAYS_SEARCH_USER_PATHS = NO; }; name = Debug; };
+		0000000000000000000A1013 = {isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; ALWAYS_SEARCH_USER_PATHS = NO; }; name = Release; };
+		0000000000000000000A1014 = {isa = XCBuildConfiguration; buildSettings = { INFOPLIST_FILE = PlayndgainExample/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.playndgain.example; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 1; CODE_SIGN_STYLE = Automatic; CODE_SIGNING_ALLOWED = NO; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; }; name = Debug; };
+		0000000000000000000A1015 = {isa = XCBuildConfiguration; buildSettings = { INFOPLIST_FILE = PlayndgainExample/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.playndgain.example; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 1; CODE_SIGN_STYLE = Automatic; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; }; name = Release; };
+		0000000000000000000A1010 = {isa = XCConfigurationList; buildConfigurations = (0000000000000000000A1012, 0000000000000000000A1013, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		0000000000000000000A1011 = {isa = XCConfigurationList; buildConfigurations = (0000000000000000000A1014, 0000000000000000000A1015, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+	};
+	rootObject = 0000000000000000000A1000;
+}
