@@ -2,7 +2,7 @@
 
 A native offerwall for iOS apps: an offer list, offer details and the player's history, built with UIKit. Offers open in Safari or the App Store. Rewards reach your server by the same signed postback the iframe wall uses.
 
-- iOS 13+, Swift 5.9, UIKit. No third-party dependencies.
+- iOS 15+, Swift 5.9, UIKit. No third-party dependencies.
 - Swift Package Manager and CocoaPods.
 - Your secret key never goes into the app.
 

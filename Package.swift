@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "Playndgain",
     defaultLocalization: "en",
-    platforms: [.iOS(.v13)],
+    platforms: [.iOS(.v15)],
     products: [
         .library(name: "Playndgain", targets: ["Playndgain"]),
     ],
