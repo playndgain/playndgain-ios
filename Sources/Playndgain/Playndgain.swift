@@ -102,7 +102,7 @@ public struct PlayndgainConfig {
     /// Logs request outcomes. Never logs URLs (they carry the signature) or offer names.
     public var debugLogging: Bool
 
-    public init(baseURL: URL = URL(string: "https://wall.playndgain.com")!, debugLogging: Bool = false) {
+    public init(baseURL: URL = URL(string: "https://playndgain.com")!, debugLogging: Bool = false) {
         self.baseURL = baseURL
         self.debugLogging = debugLogging
     }
