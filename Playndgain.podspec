@@ -11,5 +11,5 @@ Pod::Spec.new do |s|
   s.swift_version    = '5.9'
   s.source_files     = 'Sources/Playndgain/**/*.swift'
   s.resource_bundles = { 'Playndgain' => ['Sources/Playndgain/Resources/*'] }
-  s.frameworks       = 'UIKit', 'CoreText'
+  s.frameworks       = 'UIKit', 'CoreText', 'WebKit'
 end
