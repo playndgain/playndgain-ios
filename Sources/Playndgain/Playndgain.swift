@@ -12,7 +12,7 @@ import UIKit
 /// signature through. Rewards arrive at your server by postback; the SDK only
 /// tells you when to look.
 public enum Playndgain {
-    public static let version = "1.0.0"
+    public static let version = "1.1.0"
 
     static private(set) var appId: String?
     static private(set) var config = PlayndgainConfig()

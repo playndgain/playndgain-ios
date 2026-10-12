@@ -156,6 +156,8 @@ final class OfferOpener: NSObject, WKNavigationDelegate, WKUIDelegate {
     private let onResolve: (OfferOutcome) -> Void
     private let onIntercept: (OfferOutcome) -> Void
     private var clickURL: URL?
+    /// The revealed page's web content process died: the page is gone.
+    var onGone: (() -> Void)?
     private var timer: DispatchWorkItem?
 
     /// `onResolve` is called once per click, unless the opener is cancelled
@@ -251,7 +253,7 @@ final class OfferOpener: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        if let o = resolution.didFail() { resolved(o) }
+        if let o = resolution.didFail() { resolved(o) } else if resolution.phase == .revealed { onGone?() }
     }
 
     private func failed(_ error: Error) {

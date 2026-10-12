@@ -26,6 +26,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     /// sort never overwrites a newer one.
     private var gate = LoadTickets()
     private var openingDetail = false
+    private var offerFlow: OfferFlow?
 
     private let stack = UIStackView()
     private let table = UITableView(frame: .zero, style: .plain)
@@ -71,6 +72,10 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     @objc private func didBecomeActive() {
         guard pendingRewardCheck else { return }
         pendingRewardCheck = false
+        rewardCheck()
+    }
+
+    private func rewardCheck() {
         Playndgain.delegate?.playndgainRewardCheck()
         load()
     }
@@ -583,18 +588,28 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     // MARK: Clicks
 
-    /// Out of the app, always: `/click/{offer}` in the system browser, so the
+    /// Inside the app: `OfferFlow` follows `/click/{offer}` once, so the
     /// wall's own pre-click checks, the click row and the redirect to the
-    /// advertiser all happen exactly as in the iframe.
+    /// advertiser all happen exactly as in the iframe, then shows the store
+    /// sheet or the page it landed on.
     private func startOffer(_ url: URL?) {
-        guard let url = url, Links.isAllowedClick(url, base: Playndgain.config.baseURL) else {
+        let base = Playndgain.config.baseURL
+        guard offerFlow == nil, let url = url, Links.isAllowedClick(url, base: base) else {
             Playndgain.emit(.internal)
             return
         }
-        pendingRewardCheck = true
-        UIApplication.shared.open(url, options: [:]) { [weak self] ok in
-            if !ok { self?.pendingRewardCheck = false; Playndgain.emit(.internal) }
+        let flow = OfferFlow(host: self, palette: palette, closeLabel: closeLabel,
+                             leaving: { [weak self] in self?.pendingRewardCheck = $0 }) { [weak self] end in
+            guard let self = self else { return }
+            self.offerFlow = nil
+            switch end {
+            case .returned: self.rewardCheck()
+            case .leftApp: break
+            case .failed: Playndgain.emit(.network); self.showOffline()
+            }
         }
+        offerFlow = flow
+        if !flow.start(url, base: base) { offerFlow = nil; Playndgain.emit(.internal) }
     }
 
     // MARK: History

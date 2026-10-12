@@ -27,7 +27,9 @@ final class WallUITests: XCTestCase {
     func testOffersDetailClickReturnAndHistory() {
         let app = launch("IOS_FLOW")
         // A card is one accessibility element labelled "name, reward currency".
-        let card = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Puzzle Quest,'")).firstMatch
+        // The wall's test offer: in test mode its click lands on the wall's own
+        // page instead of an advertiser, the same on every machine.
+        let card = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Test Offer,'")).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 15))
         shot("01-offers")
 
@@ -38,13 +40,28 @@ final class WallUITests: XCTestCase {
         shot("02-detail")
 
         start.tap()
-        // The click leaves the app for Safari.
+        // The click resolves inside the app. A web landing (a test-mode click
+        // lands on the wall's own notice page) rises as the browser sheet. A
+        // store link opens the App Store sheet, which the simulator cannot
+        // load, so there the store URL leaves for the system instead.
+        let sheetClose = app.buttons["playndgain.offer.close"]
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15))
-        sleep(3)
-        shot("03-click-safari")
-
-        app.activate()
+        let appStore = XCUIApplication(bundleIdentifier: "com.apple.AppStore")
+        if sheetClose.waitForExistence(timeout: 15) {
+            XCTAssertTrue(app.webViews.firstMatch.exists)
+            XCTAssertEqual(app.state, .runningForeground)
+            XCTAssertNotEqual(safari.state, .runningForeground, "the click must not leave for Safari")
+            sleep(1)
+            shot("03-click-browser-sheet")
+            // Closing the sheet is the return from the offer: the reward check.
+            sheetClose.tap()
+            let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: sheetClose)
+            wait(for: [gone], timeout: 5)
+        } else {
+            XCTAssertTrue(safari.state == .runningForeground || appStore.state == .runningForeground, "no in-app outcome and no store fallback")
+            shot("03-click-store-fallback")
+            app.activate()
+        }
         XCTAssertTrue(app.buttons["History"].waitForExistence(timeout: 10))
         app.buttons["History"].tap()
         // A test-mode click is test earnings and History hides it, exactly as
@@ -59,8 +76,29 @@ final class WallUITests: XCTestCase {
         XCTAssertTrue(events.waitForExistence(timeout: 5))
         let text = log(app)
         XCTAssertTrue(text.contains("didOpen"), text)
-        XCTAssertTrue(text.contains("rewardCheck"), text)
+        XCTAssertEqual(text.components(separatedBy: "rewardCheck").count - 1, 1, "one reward check per click: \(text)")
         XCTAssertTrue(text.contains("didClose"), text)
+    }
+
+    /// The local demo offers redirect to a host that does not resolve: the
+    /// click fails before any page, which is the offline screen, with no
+    /// reward check and nothing left open.
+    func testAClickThatReachesNothingShowsOffline() {
+        let app = launch("IOS_FAIL")
+        let card = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Puzzle Quest,'")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        card.tap()
+        let start = app.buttons["Start this offer"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        start.tap()
+        XCTAssertTrue(app.staticTexts["You are offline"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["playndgain.offer.close"].exists)
+        shot("07-click-failed")
+        app.buttons["Close"].tap()
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5))
+        let text = log(app)
+        XCTAssertFalse(text.contains("rewardCheck"), text)
+        XCTAssertTrue(text.contains("network"), text)
     }
 
     func testArabicIsRightToLeft() {

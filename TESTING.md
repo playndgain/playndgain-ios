@@ -8,7 +8,7 @@ Run on the Mac with Xcode (27 here) and an iPhone simulator (`iPhone 17 Pro` her
 xcodebuild -scheme Playndgain -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-Expected: 20 tests, 0 failures. `swift build` alone does not work: UIKit needs an iOS destination.
+Expected: 40 tests, 0 failures. `StoreLinkTests` pins which URLs are App Store products; `OfferResolutionTests` drives every navigation the click can take (store, app link, landing, timeout, failure) without a web view. `swift build` alone does not work: UIKit needs an iOS destination.
 
 ## 2. Serve the wall
 
@@ -32,7 +32,8 @@ xcodebuild -project PlayndgainExample.xcodeproj -scheme PlayndgainExample \
 
 `WallUITests` launches the Example with `-base http://localhost:8765 -userid … -autoshow 1` and drives the real SDK screens:
 
-- **Offers → detail → Start → Safari → back → History → Close.** Checks the detail sheet, that the click leaves for Safari, that the click shows in History, and that the delegate saw `didOpen`, `rewardCheck` and `didClose`.
+- **Offers → Test Offer → Start → browser sheet → Close → History → Close.** The wall's test offer, in test mode, lands on the wall's own page, so the in-app browser sheet rises with it and nothing leaves for Safari. Checks the detail sheet, the sheet and its web view, that History renders, and that the delegate saw `didOpen`, exactly one `rewardCheck`, and `didClose`. If the click instead reaches a store link, the simulator cannot load the App Store sheet and the store URL opens outside the app; the test then accepts Safari or the App Store in front and comes back.
+- **A click that reaches nothing.** Puzzle Quest in the demo data redirects to a host that does not resolve: the offline screen, a `network` error, no `rewardCheck`.
 - **Arabic.** `-lang ar`: the tab bar is mirrored.
 - **Blocked.** Skipped unless the wall is set up to refuse the simulator (below).
 
@@ -46,5 +47,7 @@ To exercise the blocked screen anyway, add `x86_64` or `arm64` to the rule's `si
 
 ## 5. Things to check on a real iPhone before release
 
-- iCloud Private Relay on: a click opens in Safari, and its egress may be classified as a proxy where the in-app iframe's would not. If so, decide between opening clicks in `SFSafariViewController` and accepting it.
+- The App Store sheet. `SKStoreProductViewController` cannot load products on the simulator, which always takes the fallback (the store URL opens outside the app). On an iPhone, a click that ends on an App Store link must show the product sheet over the wall; closing it fires `rewardCheck` once.
+- A real advertiser chain: Start shows the loading state, then the store sheet or the browser sheet within about 8 seconds, never Safari.
+- iCloud Private Relay on: the click runs in the app's own web view now, so its egress should match the wall's own requests.
 - `pod lib lint Playndgain.podspec --allow-warnings` once the repository URL is filled in.
