@@ -573,20 +573,32 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
                 // Never asked (the answer was reset since the list loaded): ask
                 // now, and retire any page load in flight so it cannot replace it.
                 if r.status == "consent_required" { _ = self.gate.next(); self.showConsent(); return }
-                let sheet = DetailViewController(response: r, palette: self.palette, strings: r.strings.root == nil ? self.strings : r.strings, currency: self.last?.app?.currencyName ?? "") { [weak self] url in
-                    self?.dismiss(animated: true) { self?.startOffer(url) }
-                }
-                if #available(iOS 15.0, *), let s = sheet.sheetPresentationController {
-                    s.detents = [.large()]
-                    s.prefersGrabberVisible = true
-                    s.preferredCornerRadius = self.palette.radius * 1.8
-                }
-                self.present(sheet, animated: true)
+                self.presentDetail(r)
             }
         }
     }
 
+    private func presentDetail(_ r: WallResponse) {
+        let sheet = DetailViewController(response: r, palette: palette, strings: r.strings.root == nil ? strings : r.strings, currency: last?.app?.currencyName ?? "") { [weak self] url in
+            self?.dismiss(animated: true) { self?.startOffer(url) }
+        }
+        if #available(iOS 15.0, *), let s = sheet.sheetPresentationController {
+            s.detents = [.large()]
+            s.prefersGrabberVisible = true
+            s.preferredCornerRadius = palette.radius * 1.8
+        }
+        present(sheet, animated: true)
+    }
+
     // MARK: Clicks
+
+    /// The click reached nothing: the wall stays, and the detail sheet's own
+    /// notice says this offer could not be opened.
+    private func showOfferNotice() {
+        let n = Notice(key: "blocked", title: strings.or("notice.blocked.title", "Offer unavailable"),
+                       body: strings.or("notice.blocked.body", "We could not open this offer. Please go back and try a different one."))
+        presentDetail(WallResponse(status: "blocked", http: 0, app: nil, strings: strings, notice: n))
+    }
 
     /// Inside the app: `OfferFlow` follows `/click/{offer}` once, so the
     /// wall's own pre-click checks, the click row and the redirect to the
@@ -605,7 +617,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             switch end {
             case .returned: self.rewardCheck()
             case .leftApp: break
-            case .failed: Playndgain.emit(.network); self.showOffline()
+            case .failed: Playndgain.emit(.network); self.showOfferNotice()
             }
         }
         offerFlow = flow

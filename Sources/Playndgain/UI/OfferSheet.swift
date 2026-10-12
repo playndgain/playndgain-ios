@@ -8,7 +8,7 @@ enum OfferFlowEnd {
     case returned
     /// The click left the app: the check waits for the foreground.
     case leftApp
-    /// Nothing loaded: the wall's offline screen.
+    /// Nothing loaded: the wall stays and says the offer could not be opened.
     case failed
 }
 

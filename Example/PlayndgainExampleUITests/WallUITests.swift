@@ -81,9 +81,9 @@ final class WallUITests: XCTestCase {
     }
 
     /// The local demo offers redirect to a host that does not resolve: the
-    /// click fails before any page, which is the offline screen, with no
-    /// reward check and nothing left open.
-    func testAClickThatReachesNothingShowsOffline() {
+    /// click fails before any page. The wall stays, a sheet says the offer
+    /// could not be opened, and there is no reward check.
+    func testAClickThatReachesNothingKeepsTheWall() {
         let app = launch("IOS_FAIL")
         let card = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Puzzle Quest,'")).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 15))
@@ -91,9 +91,13 @@ final class WallUITests: XCTestCase {
         let start = app.buttons["Start this offer"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))
         start.tap()
-        XCTAssertTrue(app.staticTexts["You are offline"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Offer unavailable"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["playndgain.offer.close"].exists)
+        XCTAssertFalse(app.staticTexts["You are offline"].exists)
         shot("07-click-failed")
+        app.swipeDown(velocity: .fast)
+        // The offer list is still there behind it.
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
         app.buttons["Close"].tap()
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 5))
         let text = log(app)
