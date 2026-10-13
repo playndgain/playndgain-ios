@@ -8,7 +8,7 @@ Run on the Mac with Xcode (27 here) and an iPhone simulator (`iPhone 17 Pro` her
 xcodebuild -scheme Playndgain -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-Expected: 40 tests, 0 failures. `StoreLinkTests` pins which URLs are App Store products; `OfferResolutionTests` drives every navigation the click can take (store, app link, landing, timeout, failure) without a web view. `swift build` alone does not work: UIKit needs an iOS destination.
+Expected: 41 tests, 0 failures. `StoreLinkTests` pins which URLs are App Store products; `OfferResolutionTests` drives every navigation the click can take (store, app link, landing, timeout, failure) without a web view. `swift build` alone does not work: UIKit needs an iOS destination.
 
 ## 2. Serve the wall
 
@@ -51,3 +51,17 @@ To exercise the blocked screen anyway, add `x86_64` or `arm64` to the rule's `si
 - A real advertiser chain: Start shows the loading state, then the store sheet or the browser sheet within about 8 seconds, never Safari.
 - iCloud Private Relay on: the click runs in the app's own web view now, so its egress should match the wall's own requests.
 - `pod lib lint Playndgain.podspec --allow-warnings` once the repository URL is filled in.
+
+## 6. Running the Example on an iPhone
+
+The project commits no team. Sign from the command line instead:
+
+```
+cd Example
+xcodebuild -project PlayndgainExample.xcodeproj -scheme PlayndgainExample \
+  -destination 'id=<device UDID>' DEVELOPMENT_TEAM=<team id> \
+  CODE_SIGN_STYLE=Automatic CODE_SIGNING_ALLOWED=YES -allowProvisioningUpdates build
+xcrun devicectl device install app --device <device UDID> <path to PlayndgainExample.app>
+```
+
+The phone needs Developer Mode on and the developer trusted under Settings > General > VPN & Device Management. The Example uses the scene lifecycle: current iOS stops an app built with the latest SDK that sets up its window in the app delegate.
