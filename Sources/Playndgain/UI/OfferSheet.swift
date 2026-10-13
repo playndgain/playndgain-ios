@@ -52,6 +52,8 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
             self?.finish(.returned)
         }
         sheet.translatesAutoresizingMaskIntoConstraints = false
+        // No keyboard from the wall's search field over the page.
+        host.view.endEditing(true)
         host.view.addSubview(sheet)
         NSLayoutConstraint.activate([
             sheet.topAnchor.constraint(equalTo: host.view.topAnchor),
@@ -109,20 +111,24 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
                     // A swipe down closes the sheet without Done.
                     store.presentationController?.delegate = self
                 } else {
-                    self.openStoreOutside(url)
+                    self.openStoreOutside(StoreLink.fallbackURLs(url, id: id))
                 }
             }
         }
     }
 
-    /// No product sheet (the simulator has no App Store): the store app, outside.
-    private func openStoreOutside(_ url: URL) {
-        guard storeEndsClick else { UIApplication.shared.open(url, options: [:], completionHandler: nil); return }
-        leaving(true)
+    /// No product sheet (the simulator has no App Store): the store app,
+    /// outside. The link as the chain gave it first, then the plain App
+    /// Store page for the same id, which opens wherever `itms-apps` cannot.
+    private func openStoreOutside(_ urls: [URL]) {
+        guard let url = urls.first else {
+            if storeEndsClick { leaving(false); finish(.failed) }
+            return
+        }
+        if storeEndsClick { leaving(true) }
         UIApplication.shared.open(url, options: [:]) { [weak self] ok in
             guard let self = self else { return }
-            if !ok { self.leaving(false) }
-            self.finish(ok ? .leftApp : .failed)
+            if !ok { self.openStoreOutside(Array(urls.dropFirst())) } else if self.storeEndsClick { self.finish(.leftApp) }
         }
     }
 

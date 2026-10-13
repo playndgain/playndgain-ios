@@ -24,6 +24,13 @@ enum StoreLink {
         return nil
     }
 
+    /// Where to send the player when the in-app sheet cannot load: the link
+    /// as given, then the App Store web page for the id if that is different.
+    static func fallbackURLs(_ url: URL, id: String) -> [URL] {
+        let web = URL(string: "https://apps.apple.com/app/id\(id)")!
+        return url.absoluteString == web.absoluteString ? [url] : [url, web]
+    }
+
     private static func digits(_ segment: String, after prefix: String) -> String? {
         guard segment.hasPrefix(prefix) else { return nil }
         let rest = String(segment.dropFirst(prefix.count))

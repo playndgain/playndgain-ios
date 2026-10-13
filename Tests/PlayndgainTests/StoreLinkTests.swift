@@ -42,4 +42,12 @@ final class StoreLinkTests: XCTestCase {
         XCTAssertNil(id("game://apps.apple.com/app/id1"))
         XCTAssertNil(id("javascript:location='https://apps.apple.com/app/id1'"))
     }
+
+    func testFallbackTriesTheLinkThenTheWebPage() {
+        let scheme = URL(string: "itms-apps://itunes.apple.com/app/id284882215")!
+        XCTAssertEqual(StoreLink.fallbackURLs(scheme, id: "284882215").map(\.absoluteString),
+                       ["itms-apps://itunes.apple.com/app/id284882215", "https://apps.apple.com/app/id284882215"])
+        let web = URL(string: "https://apps.apple.com/app/id284882215")!
+        XCTAssertEqual(StoreLink.fallbackURLs(web, id: "284882215"), [web])
+    }
 }
