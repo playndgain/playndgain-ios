@@ -8,7 +8,7 @@ Run on the Mac with Xcode (27 here) and an iPhone simulator (`iPhone 17 Pro` her
 xcodebuild -scheme Playndgain -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-Expected: 41 tests, 0 failures. `StoreLinkTests` pins which URLs are App Store products; `OfferResolutionTests` drives every navigation the click can take (store, app link, landing, timeout, failure) without a web view. `swift build` alone does not work: UIKit needs an iOS destination.
+Expected: 42 tests, 0 failures. `StoreLinkTests` pins which URLs are App Store products; `OfferResolutionTests` drives every navigation the click can take (store, app link, landing, timeout, failure) without a web view. `swift build` alone does not work: UIKit needs an iOS destination.
 
 ## 2. Serve the wall
 

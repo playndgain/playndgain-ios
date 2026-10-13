@@ -28,6 +28,10 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
     /// The store sheet on screen is the click's own outcome, not a tap
     /// inside a revealed page, so closing it ends the click.
     private var storeEndsClick = false
+    /// The store sheet while its product loads. Held here: nothing else keeps
+    /// it alive until it is presented, and a released sheet reads as a failed
+    /// load, which sent every store click outside the app.
+    private(set) var pendingStore: SKStoreProductViewController?
 
     /// `leaving(true)` comes just before the click leaves the app, and
     /// `leaving(false)` if the system then refuses to open it. `ended` is
@@ -99,13 +103,16 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
 
     // MARK: Store
 
-    private func showStore(_ id: String, _ url: URL) {
+    func showStore(_ id: String, _ url: URL) {
         let store = SKStoreProductViewController()
         store.delegate = self
+        pendingStore = store
         store.loadProduct(withParameters: [SKStoreProductParameterITunesItemIdentifier: id]) { [weak self, weak store] ok, _ in
             DispatchQueue.main.async {
-                guard let self = self, !self.finished else { return }
-                if ok, let store = store, let host = self.host {
+                // Only the newest sheet counts: a second store tap replaces the first.
+                guard let self = self, !self.finished, let store = store, self.pendingStore === store else { return }
+                self.pendingStore = nil
+                if ok, let host = self.host {
                     // Over whatever is on top: the browser sheet lives inside the wall's view.
                     host.present(store, animated: true)
                     // A swipe down closes the sheet without Done.
@@ -150,6 +157,7 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
     private func finish(_ end: OfferFlowEnd) {
         guard !finished else { return }
         finished = true
+        pendingStore = nil
         opener?.cancel()
         sheet?.dismiss()
         ended(end)

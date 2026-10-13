@@ -29,10 +29,17 @@ final class WallUITests: XCTestCase {
         // A card is one accessibility element labelled "name, reward currency".
         // The wall's test offer: in test mode its click lands on the wall's own
         // page instead of an advertiser, the same on every machine.
-        let card = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Test Offer,'")).firstMatch
-        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 15))
         shot("01-offers")
 
+        // Search for it: it can also sit in the featured rail, scrolled out of
+        // view, and a search hides the rail.
+        let search = app.searchFields.firstMatch
+        search.tap()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { search.tap() }
+        search.typeText("Test Offer\n")
+        let card = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Test Offer,'")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
         card.tap()
         let start = app.buttons["Start this offer"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))

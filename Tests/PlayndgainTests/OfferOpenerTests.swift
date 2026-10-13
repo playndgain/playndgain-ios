@@ -1,3 +1,5 @@
+import StoreKit
+import UIKit
 import XCTest
 @testable import Playndgain
 
@@ -174,5 +176,21 @@ final class OfferOpenerTests: XCTestCase {
         let opener = OfferOpener(onResolve: { _ in }, onIntercept: { _ in })
         opener.cancel()
         XCTAssertFalse(opener.start(URL(string: "https://wall.example/click/1")!, base: base))
+    }
+}
+
+final class OfferFlowTests: XCTestCase {
+    /// The store sheet must outlive `showStore`: a sheet released while its
+    /// product loads looks like a failed load and the click leaves the app.
+    func testTheStoreSheetIsHeldWhileItsProductLoads() {
+        let host = UIViewController()
+        let flow = OfferFlow(host: host, palette: .fallback, closeLabel: "Close", leaving: { _ in }, ended: { _ in })
+        weak var sheet: SKStoreProductViewController?
+        autoreleasepool {
+            flow.showStore("284882215", URL(string: "https://apps.apple.com/app/id284882215")!)
+            sheet = flow.pendingStore
+        }
+        XCTAssertNotNil(sheet, "released before its product loaded")
+        XCTAssertTrue(flow.pendingStore?.delegate === flow)
     }
 }
