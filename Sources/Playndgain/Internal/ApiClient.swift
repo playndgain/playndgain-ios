@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UIKit
 
 /// `/sdk/v1` over one shared ephemeral `URLSession`: no cookies, no cache.
@@ -141,9 +142,13 @@ final class ApiClient {
     }
 }
 
-/// Offer icons: small, proxied by the wall, cached in memory only.
+/// Offer icons: small, proxied by the wall, cached in memory only. Decoded
+/// straight to the tile's pixel size with ImageIO, so a large source never
+/// sits in memory at full size, and one download serves every tile that asks
+/// for the same icon while it is in flight. Main thread in, main thread out.
 enum ImageLoader {
-    private static let cache = NSCache<NSURL, UIImage>()
+    private static let cache = NSCache<NSString, UIImage>()
+    private static var waiting: [String: [(UIImage?) -> Void]] = [:]
     private static let session: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 15
@@ -153,15 +158,35 @@ enum ImageLoader {
         return URLSession(configuration: cfg)
     }()
 
-    static func load(_ url: URL?, _ done: @escaping (UIImage?) -> Void) {
+    /// `points` is the tile's side; the image is decoded at that size times the screen scale.
+    static func load(_ url: URL?, points: CGFloat = 56, _ done: @escaping (UIImage?) -> Void) {
         guard let url = url, Links.isWebURL(url) else { done(nil); return }
-        if let hit = cache.object(forKey: url as NSURL) { done(hit); return }
+        let pixels = Int(ceil(points * UIScreen.main.scale))
+        let key = "\(url.absoluteString)#\(pixels)"
+        if let hit = cache.object(forKey: key as NSString) { done(hit); return }
+        if waiting[key] != nil { waiting[key]?.append(done); return }
+        waiting[key] = [done]
         session.dataTask(with: url) { data, _, _ in
             // Icons are small; anything bigger is not an icon and is not decoded.
-            let img = data.flatMap { $0.count <= 2 * 1024 * 1024 ? UIImage(data: $0) : nil }
-            if let img = img { cache.setObject(img, forKey: url as NSURL) }
-            DispatchQueue.main.async { done(img) }
+            let img = data.flatMap { $0.count <= 2 * 1024 * 1024 ? downsample($0, pixels) : nil }
+            DispatchQueue.main.async {
+                if let img = img { cache.setObject(img, forKey: key as NSString) }
+                let callbacks = waiting.removeValue(forKey: key) ?? []
+                callbacks.forEach { $0(img) }
+            }
         }.resume()
+    }
+
+    static func downsample(_ data: Data, _ pixels: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, pixels),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg, scale: UIScreen.main.scale, orientation: .up)
     }
 }
 

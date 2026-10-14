@@ -128,6 +128,14 @@ extension UIView {
 
 final class PaddedLabel: UILabel {
     var insets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+    /// Fully rounded at whatever height the reader's text size gives it.
+    var pill = false
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if pill { layer.cornerRadius = bounds.height / 2 }
+    }
+
     override func drawText(in rect: CGRect) { super.drawText(in: rect.inset(by: insets)) }
     override var intrinsicContentSize: CGSize {
         let s = super.intrinsicContentSize
@@ -245,5 +253,38 @@ enum Symbols {
     static func image(_ name: String, _ size: CGFloat, _ color: UIColor, weight: UIImage.SymbolWeight = .semibold) -> UIImage? {
         UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: size, weight: weight))?
             .withTintColor(color, renderingMode: .alwaysOriginal)
+    }
+}
+
+/// A filter pill that changes state in place: the selected category takes
+/// the primary gradient, the rest are hairlines; a selected sort takes the tile.
+final class ChipButton: PressButton {
+    private var fill: GradientView?
+
+    func style(on: Bool, ink: Bool, _ p: Palette) {
+        if ink {
+            if fill == nil {
+                let g = GradientView(p)
+                g.clipsToBounds = true
+                insertSubview(g, at: 0)
+                fill = g
+            }
+            fill?.isHidden = !on
+            setTitleColor(on ? p.onPrimary : p.faint, for: .normal)
+            layer.borderWidth = on ? 0 : 1
+            layer.borderColor = p.line.cgColor
+        } else {
+            setTitleColor(on ? p.text : p.faint, for: .normal)
+            backgroundColor = on ? p.tile : .clear
+        }
+        accessibilityTraits = on ? [.button, .selected] : .button
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let f = fill else { return }
+        f.frame = bounds
+        f.layer.cornerRadius = bounds.height / 2
+        sendSubviewToBack(f)
     }
 }
