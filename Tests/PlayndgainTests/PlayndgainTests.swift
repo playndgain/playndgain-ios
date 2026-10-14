@@ -85,6 +85,20 @@ final class ParserTests: XCTestCase {
         return try Data(contentsOf: url)
     }
 
+    func testABalanceOfDigitsIsGroupedAndAnythingElsePassesThrough() {
+        XCTAssertEqual(Balance.display("1250"), "1,250")
+        XCTAssertEqual(Balance.display("1234567"), "1,234,567")
+        XCTAssertEqual(Balance.display("999"), "999")
+        XCTAssertEqual(Balance.display("007"), "7")
+        XCTAssertEqual(Balance.display("0"), "0")
+        XCTAssertEqual(Balance.display("98765432109876543210"), "98,765,432,109,876,543,210")
+        XCTAssertEqual(Balance.display("21k"), "21k")
+        XCTAssertEqual(Balance.display("21.5"), "21.5")
+        XCTAssertEqual(Balance.display("1,250"), "1,250")
+        XCTAssertEqual(Balance.display("١٢٥٠"), "١٢٥٠")
+        XCTAssertEqual(Balance.display(""), "")
+    }
+
     func testParsesTheWall() throws {
         let data = try fixture("wall_ok")
         let r = try Parser.parse(http: 200, data: data)

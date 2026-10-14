@@ -196,3 +196,21 @@ enum Colors {
         return UIColor(red: ar * p + br * (1 - p), green: ag * p + bg * (1 - p), blue: ab * p + bb * (1 - p), alpha: 1)
     }
 }
+
+/// The balance a publisher passes in, as the web wall's header shows it: an
+/// all-digit string is grouped in thousands ("1250" reads "1,250", Western
+/// digits on every wall, as the rewards are); anything else ("21k", "21.5")
+/// is shown as given.
+enum Balance {
+    static func display(_ raw: String) -> String {
+        guard !raw.isEmpty, raw.allSatisfy({ ("0"..."9").contains($0) }) else { return raw }
+        let digits = String(raw.drop(while: { $0 == "0" }))
+        guard !digits.isEmpty else { return "0" }
+        var out = ""
+        for (i, c) in digits.enumerated() {
+            if i > 0, (digits.count - i) % 3 == 0 { out.append(",") }
+            out.append(c)
+        }
+        return out
+    }
+}

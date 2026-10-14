@@ -329,7 +329,8 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     /// The user's money as a solid primary pill: the figure, then the currency.
     private func balancePill(_ balance: String, _ currency: String) -> UIView {
         let p = palette
-        let figure = UILabel(balance, Role.rowTitle, 700, p.onPrimary)
+        let shown = Balance.display(balance)
+        let figure = UILabel(shown, Role.rowTitle, 700, p.onPrimary)
         figure.font = figure.font.withMonospacedDigits()
         figure.semanticContentAttribute = .forceLeftToRight
         let unit = UILabel(currency, Role.label, 600, p.onPrimary)
@@ -350,7 +351,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         pill.setContentCompressionResistancePriority(.required, for: .horizontal)
         pill.setContentHuggingPriority(.required, for: .horizontal)
         pill.isAccessibilityElement = true
-        pill.accessibilityLabel = "\(balance) \(currency)"
+        pill.accessibilityLabel = "\(shown) \(currency)"
         return pill
     }
 
