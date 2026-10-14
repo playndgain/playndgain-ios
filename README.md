@@ -38,7 +38,8 @@ Playndgain.show(options: PlayndgainOptions(subIds: ["spring_promo"]))
 
 - An App Store app: the App Store sheet opens over the wall. If the product cannot load (the simulator has no App Store), the App Store app opens instead.
 - Another app's link: the system opens that app.
-- A web page, or no store within about 8 seconds: the same web view rises as a sheet with a Close button.
+- A web page that has finished loading: the same web view rises as a sheet with a Close button.
+- Nothing settled within about 8 seconds: the loading card says the offer is still opening, with Keep waiting (waits on the same load, never a second click) and Close.
 
 `playndgainRewardCheck()` fires once per offer: when the player closes the store sheet or the web sheet, or when the app comes back to the foreground after the offer left it.
 

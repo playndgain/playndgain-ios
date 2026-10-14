@@ -8,7 +8,7 @@ Run on the Mac with Xcode (27 here) and an iPhone simulator (`iPhone 17 Pro` her
 xcodebuild -scheme Playndgain -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-Expected: 44 tests, 0 failures. `StoreLinkTests` pins which URLs are App Store products; `OfferResolutionTests` drives every navigation the click can take (store, app link, landing, timeout, failure) without a web view. `swift build` alone does not work: UIKit needs an iOS destination.
+Expected: 47 tests, 0 failures. `StoreLinkTests` pins which URLs are App Store products; `OfferResolutionTests` drives every navigation the click can take (store, app link, landing, a wait that runs out, failure) without a web view. `swift build` alone does not work: UIKit needs an iOS destination.
 
 ## 2. Serve the wall
 
@@ -48,7 +48,7 @@ To exercise the blocked screen anyway, add `x86_64` or `arm64` to the rule's `si
 ## 5. Things to check on a real iPhone before release
 
 - The App Store sheet. `SKStoreProductViewController` cannot load products on the simulator, which always takes the fallback (the store URL opens outside the app). On an iPhone, a click that ends on an App Store link must show the product sheet over the wall; closing it fires `rewardCheck` once.
-- A real advertiser chain: Start shows the loading state, then the store sheet or the browser sheet within about 8 seconds, never Safari.
+- A real advertiser chain: Start shows "Opening {offer}…", then the store sheet or the browser sheet, never Safari. A chain that has not settled after about 8 seconds shows "Still opening…" with Keep waiting and Close; Keep waiting never requests the click again.
 - iCloud Private Relay on: the click runs in the app's own web view now, so its egress should match the wall's own requests.
 - `pod lib lint Playndgain.podspec --allow-warnings` once the repository URL is filled in.
 
