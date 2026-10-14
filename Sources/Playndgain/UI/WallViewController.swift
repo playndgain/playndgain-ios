@@ -45,17 +45,28 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         stack.axis = .vertical
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
+        // Inside the safe area on every side but the bottom, where the list
+        // runs under the home indicator. On a tablet the wall keeps a phone's
+        // reading width, centred, rather than stretching rows across it.
+        let safe = view.safeAreaLayoutGuide
+        let fill = stack.widthAnchor.constraint(equalTo: safe.widthAnchor)
+        fill.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: safe.topAnchor),
+            stack.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
+            stack.widthAnchor.constraint(lessThanOrEqualToConstant: 600),
+            stack.widthAnchor.constraint(lessThanOrEqualTo: safe.widthAnchor),
+            fill,
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         table.dataSource = self
         table.delegate = self
         table.separatorStyle = .none
         table.backgroundColor = .clear
-        table.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 32, right: 0)
+        table.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 32, right: 0)
+        table.keyboardDismissMode = .onDrag
+        table.rowHeight = UITableView.automaticDimension
+        table.estimatedRowHeight = 96
         table.register(UITableViewCell.self, forCellReuseIdentifier: "c")
         NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         showLoading()
@@ -63,6 +74,28 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { palette.dark ? .lightContent : .darkContent }
+
+    /// The search and filters scroll away with the list as its header. A
+    /// table header is sized by hand: fit it to the table's width.
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let header = table.tableHeaderView, table.bounds.width > 0 else { return }
+        let size = header.systemLayoutSizeFitting(CGSize(width: table.bounds.width, height: 0),
+                                                  withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+        if header.frame.size != size {
+            header.frame.size = size
+            table.tableHeaderView = header
+        }
+    }
+
+    /// A new reading size redraws the wall from the answer in hand.
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        guard previous?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory,
+              let r = last, ["ok", "unplaced"].contains(r.status) else { return }
+        buildChrome(r)
+        if section == .offers { buildOffers(r) } else { buildHistory(r.history) }
+    }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
@@ -124,6 +157,8 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             Fonts.rtl = app.rtl
             view.semanticContentAttribute = app.rtl ? .forceRightToLeft : .forceLeftToRight
             view.backgroundColor = palette.bg
+            // System parts (keyboard, spinners, sheets) match the wall, not the phone.
+            overrideUserInterfaceStyle = palette.dark ? .dark : .light
             setNeedsStatusBarAppearanceUpdate()
         }
         switch r.status {
@@ -152,16 +187,18 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         bar.layoutMargins = UIEdgeInsets(top: 12, left: 16, bottom: 10, right: 12)
         bar.semanticContentAttribute = view.semanticContentAttribute
 
-        let mark = UILabel(String(name.prefix(1)).uppercased(), 16, 700, p.primary)
+        let mark = UILabel(String(name.prefix(1)).uppercased(), Role.rowTitle, 700, p.primary)
         mark.textAlignment = .center
         _ = mark.rounded(p.tile, p.radius * 0.6)
         mark.clipsToBounds = true
         mark.widthAnchor.constraint(equalToConstant: 36).isActive = true
         mark.heightAnchor.constraint(equalToConstant: 36).isActive = true
         mark.isAccessibilityElement = false
+        mark.adjustsFontForContentSizeCategory = false
+        mark.adjustsFontSizeToFitWidth = true
         bar.addArrangedSubview(mark)
 
-        let titles = UIStackView(arrangedSubviews: [UILabel(name, 15, 600, p.text), UILabel(strings["earn"], 12, 400, p.muted)])
+        let titles = UIStackView(arrangedSubviews: [UILabel(name, Role.rowTitle, 600, p.text), UILabel(strings["earn"], Role.label, 400, p.muted)])
         titles.axis = .vertical
         titles.spacing = 3
         bar.addArrangedSubview(titles)
@@ -169,7 +206,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
         if let bal = options.balance ?? app.balance {
             // The user's money, as the one filled pill in the header.
-            let pill = PrimaryButton(bal, p, size: 13)
+            let pill = PrimaryButton(bal, p, size: Role.body)
             pill.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
             pill.isUserInteractionEnabled = false
             pill.accessibilityTraits = .staticText
@@ -196,11 +233,17 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             let on = t == section
             let b = PressButton(type: .custom)
             b.setTitle(label, for: .normal)
-            b.titleLabel?.font = Fonts.font(14, on ? 600 : 400)
-            b.setTitleColor(on ? p.text : p.muted, for: .normal)
-            b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-            b.heightAnchor.constraint(equalToConstant: 40).isActive = true
-            if on { _ = b.rounded(p.primarySoft, 20) }
+            b.titleLabel?.font = Fonts.font(Role.body, on ? 700 : 600)
+            b.setTitleColor(on ? p.text : p.faint, for: .normal)
+            b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+            b.heightAnchor.constraint(greaterThanOrEqualToConstant: 36).isActive = true
+            b.hitOutset = 4
+            b.pill = true
+            if on {
+                b.backgroundColor = p.primarySoft
+                b.layer.borderWidth = 1
+                b.layer.borderColor = p.primary.withAlphaComponent(0.35).cgColor
+            }
             b.accessibilityTraits = on ? [.button, .selected] : .button
             b.addAction(for: .touchUpInside) { [weak self] in if !on { self?.switchTab(t) } }
             tabs.addArrangedSubview(b)
@@ -221,6 +264,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     private func switchTab(_ t: Section) {
         section = t
+        UIAccessibility.post(notification: .announcement, argument: t == .offers ? strings.or("tabs.offers", "Offers") : strings.or("tabs.history", "History"))
         if let r = last { buildChrome(r) }
         let spinner = UIActivityIndicatorView(style: .medium)
         spinner.color = palette.muted
@@ -232,27 +276,51 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     // MARK: Offers
 
     private func buildOffers(_ r: WallResponse) {
+        stack.addArrangedSubview(table)
+        table.tableHeaderView = controls(r)
+        refilter()
+        view.setNeedsLayout()
+    }
+
+    /// Search, categories and sort: the list's header, so they scroll away
+    /// and the offers get the screen, in landscape most of all.
+    private func controls(_ r: WallResponse) -> UIView {
         let p = palette
         let search = UISearchBar()
         search.searchBarStyle = .minimal
-        search.placeholder = strings.or("search_placeholder", "Search...")
+        search.placeholder = strings.or("search_placeholder", "Search…")
         search.text = query
         search.delegate = self
-        search.searchTextField.font = Fonts.font(14, 400)
-        search.searchTextField.textColor = p.text
-        search.searchTextField.backgroundColor = p.card
+        search.keyboardAppearance = p.dark ? .dark : .light
+        search.returnKeyType = .search
+        let field = search.searchTextField
+        field.font = Fonts.font(Role.body, 400)
+        field.adjustsFontForContentSizeCategory = true
+        field.textColor = p.text
+        field.tintColor = p.primary
+        field.attributedPlaceholder = NSAttributedString(string: search.placeholder ?? "", attributes: [.foregroundColor: p.faint, .font: Fonts.font(Role.body, 400)])
+        field.leftView?.tintColor = p.faint
+        field.borderStyle = .none
+        field.backgroundColor = p.card
+        field.layer.cornerRadius = 18
+        field.layer.borderWidth = 1
+        field.layer.borderColor = p.line.cgColor
+        field.clipsToBounds = true
         search.semanticContentAttribute = view.semanticContentAttribute
-        let searchWrap = UIStackView(arrangedSubviews: [search])
-        searchWrap.isLayoutMarginsRelativeArrangement = true
-        searchWrap.layoutMargins = UIEdgeInsets(top: 8, left: 8, bottom: 2, right: 8)
-        stack.addArrangedSubview(searchWrap)
+        let col = UIStackView(arrangedSubviews: [search])
+        col.axis = .vertical
+        col.isLayoutMarginsRelativeArrangement = true
+        col.layoutMargins = UIEdgeInsets(top: 8, left: 0, bottom: 4, right: 0)
+        col.setCustomSpacing(4, after: search)
+        let searchInset = search.widthAnchor.constraint(equalTo: col.widthAnchor, constant: -16)
+        searchInset.isActive = true
 
         if !r.categories.isEmpty {
             var chips: [(String, Bool, () -> Void)] = [(strings.or("all", "All"), category == nil, { [weak self] in self?.pickCategory(nil) })]
             for c in r.categories {
                 chips.append((c.prefix(1).uppercased() + c.dropFirst(), category == c, { [weak self] in self?.pickCategory(c) }))
             }
-            stack.addArrangedSubview(chipRow(chips, ink: true))
+            col.addArrangedSubview(chipRow(chips, ink: true))
         }
 
         let sorts: [(String?, String)] = [(nil, strings.or("sort.featured", "Featured")), ("reward", strings.or("sort.reward", "Top reward")), ("trending", strings.or("sort.trending", "Trending"))]
@@ -264,10 +332,14 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             })
         }, ink: false)
         sortRow.accessibilityLabel = strings.or("sort.label", "Sort offers")
-        stack.addArrangedSubview(sortRow)
+        col.addArrangedSubview(sortRow)
+        col.alignment = .center
+        col.arrangedSubviews.dropFirst().forEach { $0.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true }
+        return col
+    }
 
-        stack.addArrangedSubview(table)
-        refilter()
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        searchBar.resignFirstResponder()
     }
 
     private func chipRow(_ chips: [(String, Bool, () -> Void)], ink: Bool) -> UIView {
@@ -276,34 +348,38 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         scroll.showsHorizontalScrollIndicator = false
         let row = UIStackView()
         row.axis = .horizontal
+        row.alignment = .center
         row.spacing = 8
         row.translatesAutoresizingMaskIntoConstraints = false
         row.semanticContentAttribute = view.semanticContentAttribute
         scroll.addSubview(row)
+        // As tall as its chips at the reader's text size, never scrolling up and down.
         NSLayoutConstraint.activate([
             row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 6),
             row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -6),
             row.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 16),
             row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -16),
-            row.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor, constant: -12),
-            scroll.heightAnchor.constraint(equalToConstant: ink ? 48 : 42),
+            scroll.contentLayoutGuide.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            scroll.heightAnchor.constraint(equalTo: row.heightAnchor, constant: 12),
         ])
         for (label, on, action) in chips {
             // The selected category takes the primary fill, as on the web wall;
             // the rest are hairline pills. Sort keeps its quieter tile.
-            let b: PressButton = ink && on ? PrimaryButton(label, p, size: 13) : PressButton(type: .custom)
+            let b: PressButton = ink && on ? PrimaryButton(label, p, size: Role.label) : PressButton(type: .custom)
             b.setTitle(label, for: .normal)
-            b.contentEdgeInsets = UIEdgeInsets(top: 0, left: ink ? 14 : 10, bottom: 0, right: ink ? 14 : 10)
+            b.titleLabel?.font = Fonts.font(Role.label, 600)
+            b.contentEdgeInsets = UIEdgeInsets(top: 9, left: ink ? 14 : 12, bottom: 9, right: ink ? 14 : 12)
+            b.hitOutset = 5
+            b.pill = true
             if ink {
-                b.titleLabel?.font = Fonts.font(13, 600)
                 if !on {
                     b.setTitleColor(p.faint, for: .normal)
-                    _ = b.rounded(.clear, 18, border: p.line)
+                    b.layer.borderWidth = 1
+                    b.layer.borderColor = p.line.cgColor
                 }
             } else {
-                b.titleLabel?.font = Fonts.font(12, on ? 600 : 400)
-                b.setTitleColor(on ? p.text : p.muted, for: .normal)
-                if on { _ = b.rounded(p.tile, 15) }
+                b.setTitleColor(on ? p.text : p.faint, for: .normal)
+                if on { b.backgroundColor = p.tile }
             }
             b.accessibilityTraits = on ? [.button, .selected] : .button
             b.addAction(for: .touchUpInside, action)
@@ -313,16 +389,17 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         return scroll
     }
 
-    /// The selected chip has to redraw, so the offers screen is rebuilt from
-    /// the response already in hand. No refetch.
+    /// The selected chip has to redraw, so the controls are rebuilt from the
+    /// response already in hand. No refetch, and the tabs stay as they are.
     private func pickCategory(_ c: String?) {
         guard let r = last else { return }
         category = c
-        buildChrome(r)
-        buildOffers(r)
+        table.tableHeaderView = controls(r)
+        refilter()
+        view.setNeedsLayout()
         // A new filter starts at the top of its own list.
         view.layoutIfNeeded()
-        if !rows.isEmpty { table.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false) }
+        table.setContentOffset(CGPoint(x: 0, y: -table.adjustedContentInset.top), animated: false)
     }
 
     private func refilter() {
@@ -443,38 +520,66 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         let text = UIStackView()
         text.axis = .vertical
         text.spacing = 4
-        let name = UILabel(o.name, 15, 600, p.text)
+        let name = UILabel(o.name, Role.rowTitle, 600, p.text, lines: 2)
         name.lineBreakMode = .byTruncatingTail
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         text.addArrangedSubview(name)
         if !o.instructions.isEmpty {
-            let note = UILabel(o.instructions, 12.5, 400, p.muted, lines: 2)
+            let note = UILabel(o.instructions, Role.body, 400, p.muted, lines: 2)
             note.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             text.addArrangedSubview(note)
         }
         let meta = [o.test ? strings.or("test_badge", "Test offer") : nil,
                     !o.test && o.featured ? strings["featured"] : nil,
-                    o.stepsLabel ?? (o.multiReward ? strings["multi_reward"] : nil),
-                    o.peopleLabel].compactMap { $0 }.filter { !$0.isEmpty }
-        if !meta.isEmpty {
-            let m = UILabel(meta.joined(separator: "  ·  "), 11.5, 400, p.faint)
+                    o.stepsLabel ?? (o.repeatable ? strings["multi_reward"] : nil)].compactMap { $0 }.filter { !$0.isEmpty }
+        if !meta.isEmpty || o.peopleLabel != nil {
+            let m = UILabel(nil, Role.label, 400, p.faint)
+            m.attributedText = metaLine(meta, people: o.peopleLabel, font: m.font)
             m.lineBreakMode = .byTruncatingTail
             m.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             text.addArrangedSubview(m)
         }
         text.setContentHuggingPriority(.defaultLow, for: .horizontal)
         text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        card.addArrangedSubview(text)
-
-        let reward = rewardStack(o.rewardLabel, upTo: o.multiReward)
-        card.addArrangedSubview(reward)
-        card.setCustomSpacing(8, after: reward)
+        if bigText {
+            // At the accessibility sizes the figure goes under the words, so
+            // neither has to squeeze the other into a column of letters.
+            let reward = rewardStack(o.rewardLabel, upTo: o.upTo, inline: true)
+            let inner = UIStackView(arrangedSubviews: [text, reward])
+            inner.axis = .vertical
+            inner.alignment = Fonts.rtl ? .trailing : .leading
+            inner.spacing = 8
+            inner.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            card.addArrangedSubview(inner)
+        } else {
+            card.addArrangedSubview(text)
+            let reward = rewardStack(o.rewardLabel, upTo: o.upTo)
+            card.addArrangedSubview(reward)
+            card.setCustomSpacing(8, after: reward)
+        }
         card.addArrangedSubview(chevron())
 
         card.isAccessibilityElement = true
-        card.accessibilityLabel = rewardSpeech(o.name, o.rewardLabel, upTo: o.multiReward)
+        card.accessibilityLabel = rewardSpeech(o.name, o.rewardLabel, upTo: o.upTo)
         card.accessibilityTraits = .button
         return card
+    }
+
+    /// "Featured · 4 steps · (person) 12": the people count wears a person
+    /// glyph, so "+12" reads as people who joined rather than a reward.
+    private func metaLine(_ parts: [String], people: String?, font: UIFont) -> NSAttributedString {
+        let color = palette.faint
+        let out = NSMutableAttributedString(string: parts.joined(separator: "  ·  "), attributes: [.font: font, .foregroundColor: color])
+        guard let people = people?.trimmingCharacters(in: CharacterSet(charactersIn: "+ ")), !people.isEmpty else { return out }
+        if out.length > 0 { out.append(NSAttributedString(string: "  ·  ", attributes: [.font: font, .foregroundColor: color])) }
+        if let glyph = Symbols.image("person.fill", font.pointSize * 0.8, color) {
+            let a = NSTextAttachment()
+            a.image = glyph
+            a.bounds = CGRect(x: 0, y: (font.capHeight - glyph.size.height) / 2, width: glyph.size.width, height: glyph.size.height)
+            out.append(NSAttributedString(attachment: a))
+        }
+        out.append(NSAttributedString(string: "\u{2009}" + people, attributes: [.font: font, .foregroundColor: color]))
+        return out
     }
 
     private func rewardSpeech(_ name: String, _ reward: String, upTo: Bool) -> String {
@@ -504,13 +609,25 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     /// The ledger column: one fixed inline size on every row, so the figures
     /// share an edge. It never gives way; the name beside it truncates instead.
-    private func rewardStack(_ label: String, upTo: Bool) -> UIView {
+    private var bigText: Bool { traitCollection.preferredContentSizeCategory.isAccessibilityCategory }
+
+    private func rewardStack(_ label: String, upTo: Bool, inline: Bool = false) -> UIView {
         let p = palette
         let v = UIStackView()
+        if inline {
+            v.axis = .horizontal
+            v.alignment = .firstBaseline
+            v.spacing = 6
+            v.semanticContentAttribute = view.semanticContentAttribute
+            if upTo { v.addArrangedSubview(capsLabel(strings.or("up_to", "Up to"))) }
+            v.addArrangedSubview(figure("+" + label, Role.reward, p.text))
+            v.addArrangedSubview(capsLabel(last?.app?.currencyName ?? ""))
+            return v
+        }
         v.axis = .vertical
         v.alignment = Fonts.rtl ? .leading : .trailing
         if upTo { v.addArrangedSubview(capsLabel(strings.or("up_to", "Up to"))) }
-        let fig = figure("+" + label, 19, p.text)
+        let fig = figure("+" + label, Role.reward, p.text)
         v.addArrangedSubview(fig)
         v.addArrangedSubview(capsLabel(last?.app?.currencyName ?? ""))
         v.pinLedgerWidth(72)
@@ -530,7 +647,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     /// 11/600 small capitals in the faint colour: the currency and "Up to".
     private func capsLabel(_ text: String) -> UILabel {
-        let l = UILabel(text, 11, 600, palette.faint)
+        let l = UILabel(text, Role.caps, 600, palette.faint)
         if !Fonts.rtl {
             l.attributedText = NSAttributedString(string: text.uppercased(), attributes: [.kern: 0.6, .font: l.font!, .foregroundColor: palette.faint])
         }
@@ -543,7 +660,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         let wrap = UIStackView()
         wrap.axis = .vertical
         wrap.spacing = 8
-        let title = UILabel(strings.or("featured_offers", "Featured Offers"), 13, 600, p.muted)
+        let title = UILabel(strings.or("featured_offers", "Featured offers"), Role.label, 600, p.muted)
         title.textAlignment = .natural
         title.semanticContentAttribute = view.semanticContentAttribute
         let tw = UIStackView(arrangedSubviews: [title])
@@ -565,8 +682,9 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             row.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 16),
             row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -16),
-            row.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 140),
+            // As tall as its tallest card at the reader's text size.
+            scroll.contentLayoutGuide.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            scroll.heightAnchor.constraint(equalTo: row.heightAnchor),
         ])
         for o in offers {
             let control = PressControl()
@@ -585,19 +703,19 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
                 card.leadingAnchor.constraint(equalTo: control.leadingAnchor),
                 card.trailingAnchor.constraint(equalTo: control.trailingAnchor),
             ])
-            let top = UIStackView(arrangedSubviews: [iconTile(o.name, o.iconURL, 44), UIView(), rewardStack(o.rewardLabel, upTo: o.multiReward)])
+            let top = UIStackView(arrangedSubviews: [iconTile(o.name, o.iconURL, 44), UIView(), rewardStack(o.rewardLabel, upTo: o.upTo)])
             top.alignment = .center
             top.semanticContentAttribute = view.semanticContentAttribute
             card.addArrangedSubview(top)
             card.setCustomSpacing(12, after: top)
-            card.addArrangedSubview(UILabel(o.name, 15, 600, p.text))
-            card.addArrangedSubview(UILabel(o.instructions, 12.5, 400, p.muted))
+            card.addArrangedSubview(UILabel(o.name, Role.rowTitle, 600, p.text))
+            card.addArrangedSubview(UILabel(o.instructions, Role.body, 400, p.muted))
             // Height comes from the row's `.fill` alignment once the card is in
             // it; a constraint to the row before that has no common ancestor.
             control.widthAnchor.constraint(equalToConstant: 220).isActive = true
             control.addAction(for: .touchUpInside) { [weak self] in self?.openDetail(o.id) }
             control.isAccessibilityElement = true
-            control.accessibilityLabel = rewardSpeech(o.name, o.rewardLabel, upTo: o.multiReward)
+            control.accessibilityLabel = rewardSpeech(o.name, o.rewardLabel, upTo: o.upTo)
             control.accessibilityTraits = .button
             row.addArrangedSubview(control)
         }
@@ -612,7 +730,10 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         tile.clipsToBounds = true
         tile.widthAnchor.constraint(equalToConstant: size).isActive = true
         tile.heightAnchor.constraint(equalToConstant: size).isActive = true
+        // A fixed tile: the letter stays its size whatever the reading size.
         let letter = UILabel(String(name.prefix(1)).uppercased(), size * 0.4, 700, p.muted)
+        letter.adjustsFontForContentSizeCategory = false
+        letter.adjustsFontSizeToFitWidth = true
         letter.textAlignment = .center
         letter.frame = CGRect(x: 0, y: 0, width: size, height: size)
         tile.addSubview(letter)
@@ -631,7 +752,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     private func emptyView(_ title: String, _ body: String) -> UIView {
         let p = palette
-        let v = UIStackView(arrangedSubviews: [UILabel(title, 17, 600, p.text), UILabel(body, 13.5, 400, p.muted, lines: 0)])
+        let v = UIStackView(arrangedSubviews: [UILabel(title, Role.sheetTitle, 700, p.text, lines: 0), UILabel(body, Role.body, 400, p.muted, lines: 0)])
         v.axis = .vertical
         v.spacing = 8
         v.alignment = .center
@@ -671,14 +792,10 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     private func presentDetail(_ r: WallResponse) {
-        let sheet = DetailViewController(response: r, palette: palette, strings: r.strings.root == nil ? strings : r.strings, currency: last?.app?.currencyName ?? "") { [weak self] url, name in
-            self?.dismiss(animated: true) { self?.startOffer(url, name: name) }
+        let sheet = DetailViewController(response: r, palette: palette, strings: r.strings.root == nil ? strings : r.strings, currency: last?.app?.currencyName ?? "") { [weak self] url, name, opening in
+            self?.dismiss(animated: true) { self?.startOffer(url, name: name, opening: opening) }
         }
-        if #available(iOS 15.0, *), let s = sheet.sheetPresentationController {
-            s.detents = [.large()]
-            s.prefersGrabberVisible = true
-            s.preferredCornerRadius = palette.radius * 1.8
-        }
+        sheet.configureSheet()
         present(sheet, animated: true)
     }
 
@@ -696,13 +813,13 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     /// wall's own pre-click checks, the click row and the redirect to the
     /// advertiser all happen exactly as in the iframe, then shows the store
     /// sheet or the page it landed on.
-    private func startOffer(_ url: URL?, name: String) {
+    private func startOffer(_ url: URL?, name: String, opening: String?) {
         let base = Playndgain.config.baseURL
         guard offerFlow == nil, let url = url, Links.isAllowedClick(url, base: base) else {
             Playndgain.emit(.internal)
             return
         }
-        let flow = OfferFlow(host: self, palette: palette, copy: coverCopy(name),
+        let flow = OfferFlow(host: self, palette: palette, copy: coverCopy(name, opening: opening),
                              leaving: { [weak self] in self?.pendingRewardCheck = $0 }) { [weak self] end in
             guard let self = self else { return }
             self.offerFlow = nil
@@ -716,13 +833,14 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         if !flow.start(url, base: base) { offerFlow = nil; Playndgain.emit(.internal) }
     }
 
-    /// The cover's words: the wall's own strings first (`offer.opening` with
-    /// `:name`, `offer.still_opening`, `offer.still_opening_body`,
-    /// `offer.keep_waiting`), then the bundled English or Arabic.
-    private func coverCopy(_ name: String) -> CoverCopy {
-        let opening = strings.or("offer.opening", arabic ? "جارٍ فتح :name…" : "Opening :name…")
+    /// The cover's words: the offer's own finished `opening_label`, else the
+    /// wall's nameless `offer.opening_any`, else the bundled English or Arabic
+    /// with the name; then `offer.still_opening`, `offer.still_opening_body`
+    /// and `offer.keep_waiting` the same way.
+    private func coverCopy(_ name: String, opening label: String?) -> CoverCopy {
+        let bundled = (arabic ? "جارٍ فتح :name…" : "Opening :name…").replacingOccurrences(of: ":name", with: name)
         return CoverCopy(
-            opening: opening.replacingOccurrences(of: ":name", with: name),
+            opening: label ?? strings.or("offer.opening_any", bundled),
             stalledTitle: strings.or("offer.still_opening", arabic ? "لا يزال العرض قيد الفتح…" : "Still opening…"),
             stalledBody: strings.or("offer.still_opening_body", arabic
                 ? "يستغرق هذا العرض وقتا أطول من المعتاد. يمكنك الانتظار أو إغلاقه."
@@ -762,7 +880,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         t.axis = .vertical
         t.alignment = Fonts.rtl ? .trailing : .leading
         t.spacing = 4
-        let name = UILabel(r.name, 15, 600, p.text)
+        let name = UILabel(r.name, Role.rowTitle, 600, p.text)
         name.lineBreakMode = .byTruncatingTail
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         t.addArrangedSubview(name)
@@ -855,13 +973,13 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         col.spacing = 6
         col.isLayoutMarginsRelativeArrangement = true
         col.layoutMargins = UIEdgeInsets(top: 32, left: 24, bottom: 24, right: 24)
-        col.addArrangedSubview(UILabel(strings["consent.title"], 22, 700, p.text, lines: 0))
-        col.addArrangedSubview(UILabel(strings["consent.intro"], 14, 400, p.muted, lines: 0))
+        col.addArrangedSubview(UILabel(strings["consent.title"], Role.title, 700, p.text, lines: 0))
+        col.addArrangedSubview(UILabel(strings["consent.intro"], Role.body, 400, p.muted, lines: 0))
         for k in ["what", "why", "who"] {
-            let label = UILabel(strings["consent.\(k)_label"], 13, 600, p.text)
+            let label = UILabel(strings["consent.\(k)_label"], Role.label, 600, p.text)
             col.addArrangedSubview(label)
             col.setCustomSpacing(4, after: label)
-            col.addArrangedSubview(UILabel(strings["consent.\(k)"], 13.5, 400, p.muted, lines: 0))
+            col.addArrangedSubview(UILabel(strings["consent.\(k)"], Role.body, 400, p.muted, lines: 0))
         }
         // Two buttons of equal weight. Decline is a real answer.
         let buttons = UIStackView()
@@ -874,7 +992,10 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             b.titleLabel?.font = Fonts.font(15, 600)
             b.setTitleColor(p.text, for: .normal)
             _ = b.rounded(p.card, 26, border: p.line)
-            b.heightAnchor.constraint(equalToConstant: 52).isActive = true
+            b.pill = true
+            b.titleLabel?.numberOfLines = 0
+            b.titleLabel?.textAlignment = .center
+            b.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
             b.addAction(for: .touchUpInside) { [weak self] in
                 guard let self = self else { return }
                 self.showLoading()
@@ -930,19 +1051,20 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     private func centered(_ title: String, _ body: String, _ actions: [(String, Bool, () -> Void)]) {
         clear()
         let p = palette
-        let t = UILabel(title, 19, 700, p.text, lines: 0); t.textAlignment = .center
-        let b = UILabel(body, 14, 400, p.muted, lines: 0); b.textAlignment = .center
+        let t = UILabel(title, Role.title, 700, p.text, lines: 0); t.textAlignment = .center
+        let b = UILabel(body, Role.body, 400, p.muted, lines: 0); b.textAlignment = .center
         let col = UIStackView(arrangedSubviews: [t, b])
         for (label, filled, tap) in actions {
             let btn: PressButton = filled ? PrimaryButton(label, p, size: 14) : PressButton(type: .custom)
             btn.setTitle(label, for: .normal)
-            btn.titleLabel?.font = Fonts.font(14, 600)
+            btn.titleLabel?.font = Fonts.font(Role.button, 600)
             if !filled {
                 btn.setTitleColor(p.text, for: .normal)
                 _ = btn.rounded(p.card, 24, border: p.line)
             }
-            btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 28, bottom: 0, right: 28)
-            btn.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            btn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 28, bottom: 10, right: 28)
+            btn.pill = true
+            btn.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
             btn.addAction(for: .touchUpInside, tap)
             col.addArrangedSubview(btn)
         }
@@ -959,6 +1081,8 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             col.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -32),
         ])
         stack.addArrangedSubview(wrap)
+        t.accessibilityTraits = .header
+        UIAccessibility.post(notification: .screenChanged, argument: t)
     }
 
     private func showLoading() {

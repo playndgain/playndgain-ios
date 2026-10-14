@@ -102,7 +102,8 @@ final class WallUITests: XCTestCase {
         XCTAssertFalse(app.buttons["playndgain.offer.close"].exists)
         XCTAssertFalse(app.staticTexts["You are offline"].exists)
         shot("07-click-failed")
-        app.swipeDown(velocity: .fast)
+        // The notice's one way out.
+        app.buttons["playndgain.detail.back"].tap()
         // The offer list is still there behind it.
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         app.buttons["Close"].tap()

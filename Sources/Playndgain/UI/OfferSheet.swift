@@ -90,8 +90,10 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
 
     private func resolved(_ o: OfferOutcome) {
         switch o {
-        case .store(let id, let url): storeEndsClick = true; showStore(id, url)
-        case .app(let url): openApp(url)
+        // Resolved under a "Still opening" card: back to the spinner while
+        // the store or the app takes over.
+        case .store(let id, let url): sheet?.showOpening(); storeEndsClick = true; showStore(id, url)
+        case .app(let url): sheet?.showOpening(); openApp(url)
         case .landing: sheet?.reveal()
         case .timeout: sheet?.showStalled()
         case .failed: finish(.failed)
@@ -205,6 +207,7 @@ final class OfferSheet: UIView {
     private let palette: Palette
     private let copy: CoverCopy
     private let onKeepWaiting: () -> Void
+    private let onClose: () -> Void
 
     init(webView: WKWebView, palette: Palette, copy: CoverCopy, onClose: @escaping () -> Void,
          onCancel: @escaping () -> Void, onKeepWaiting: @escaping () -> Void) {
@@ -212,9 +215,10 @@ final class OfferSheet: UIView {
         self.palette = palette
         self.copy = copy
         self.onKeepWaiting = onKeepWaiting
+        self.onClose = onClose
         let p = palette
-        title = UILabel(copy.opening, 15, 600, p.text, lines: 2)
-        body = UILabel(copy.stalledBody, 13, 400, p.muted, lines: 0)
+        title = UILabel(copy.opening, Role.rowTitle, 600, p.text, lines: 3)
+        body = UILabel(copy.stalledBody, Role.body, 400, p.muted, lines: 0)
         super.init(frame: .zero)
         // The same scrim the Android SDK puts behind its sheets.
         backgroundColor = UIColor.black.withAlphaComponent(0.55)
@@ -231,14 +235,26 @@ final class OfferSheet: UIView {
 
         let close = PressButton(type: .custom)
         close.setTitle(copy.close, for: .normal)
-        close.titleLabel?.font = Fonts.font(15, 600)
+        close.titleLabel?.font = Fonts.font(Role.button, 600)
         close.setTitleColor(p.text, for: .normal)
         close.contentEdgeInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
         close.accessibilityIdentifier = "playndgain.offer.close"
         close.addAction(for: .touchUpInside, onClose)
         let header = UIStackView(arrangedSubviews: [UIView(), close])
         header.semanticContentAttribute = semanticContentAttribute
-        header.heightAnchor.constraint(equalToConstant: 52).isActive = true
+        header.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
+        // The grabber and the header drag the sheet down to close it, as a
+        // system sheet does; the page itself keeps its own scrolling.
+        let grabber = UIView().rounded(p.lineStrong, 2.5)
+        grabber.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(grabber)
+        NSLayoutConstraint.activate([
+            grabber.widthAnchor.constraint(equalToConstant: 36),
+            grabber.heightAnchor.constraint(equalToConstant: 5),
+            grabber.topAnchor.constraint(equalTo: header.topAnchor, constant: 6),
+            grabber.centerXAnchor.constraint(equalTo: header.centerXAnchor),
+        ])
+        header.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(drag(_:))))
         let rule = UIView()
         rule.backgroundColor = p.line
         rule.heightAnchor.constraint(equalToConstant: 1).isActive = true
@@ -260,14 +276,14 @@ final class OfferSheet: UIView {
         body.textAlignment = .center
         body.isHidden = true
 
-        let wait = PrimaryButton(copy.keepWaiting, p, size: 14)
+        let wait = PrimaryButton(copy.keepWaiting, p, size: Role.button)
         wait.contentEdgeInsets = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 24)
         wait.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         wait.accessibilityIdentifier = "playndgain.offer.wait"
         wait.addAction(for: .touchUpInside) { [weak self] in self?.keepWaiting() }
         let cancel = PressButton(type: .custom)
         cancel.setTitle(copy.close, for: .normal)
-        cancel.titleLabel?.font = Fonts.font(14, 600)
+        cancel.titleLabel?.font = Fonts.font(Role.button, 600)
         cancel.setTitleColor(p.text, for: .normal)
         _ = cancel.rounded(.clear, 22, border: p.lineStrong)
         cancel.contentEdgeInsets = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 24)
@@ -322,7 +338,7 @@ final class OfferSheet: UIView {
         spinner.stopAnimating()
         spinner.isHidden = true
         title.text = copy.stalledTitle
-        title.font = Fonts.font(17, 700)
+        title.font = Fonts.font(Role.sheetTitle, 700)
         body.isHidden = false
         actions.isHidden = false
         UIAccessibility.post(notification: .screenChanged, argument: title)
@@ -330,15 +346,44 @@ final class OfferSheet: UIView {
 
     /// Back to the spinner, waiting longer on the same load.
     private func keepWaiting() {
+        showOpening()
+        UIAccessibility.post(notification: .announcement, argument: copy.opening)
+        onKeepWaiting()
+    }
+
+    /// The spinner and the offer's name again: after Keep waiting, or when
+    /// the click resolved to the store or an app under the stalled card.
+    func showOpening() {
         guard cover.superview != nil else { return }
         spinner.isHidden = false
         spinner.startAnimating()
         title.text = copy.opening
-        title.font = Fonts.font(15, 600)
+        title.font = Fonts.font(Role.rowTitle, 600)
         body.isHidden = true
         actions.isHidden = true
-        UIAccessibility.post(notification: .announcement, argument: copy.opening)
-        onKeepWaiting()
+    }
+
+    /// Dragged down far or fast enough, the sheet closes; otherwise it settles back.
+    @objc private func drag(_ g: UIPanGestureRecognizer) {
+        let dy = max(0, g.translation(in: self).y)
+        switch g.state {
+        case .changed:
+            panel.transform = CGAffineTransform(translationX: 0, y: dy)
+        case .ended, .cancelled:
+            if g.state == .ended, dy > panel.bounds.height * 0.25 || g.velocity(in: self).y > 900 {
+                let finish = { [weak self] in self?.onClose() }
+                guard Motion.enabled else { finish(); return }
+                UIView.animate(withDuration: Motion.exit, delay: 0, options: [.curveEaseIn], animations: {
+                    self.panel.transform = CGAffineTransform(translationX: 0, y: self.panel.bounds.height)
+                }, completion: { _ in finish() })
+            } else {
+                UIView.animate(withDuration: Motion.enabled ? Motion.base : 0) {
+                    CATransaction.setAnimationTimingFunction(Motion.easeOut)
+                    self.panel.transform = .identity
+                }
+            }
+        default: break
+        }
     }
 
     /// The click landed on a web page: the sheet rises with it.

@@ -32,6 +32,14 @@ struct Palette {
     ))
 }
 
+/// The type roles, and nothing between them: title 22/700, sheet title
+/// 18/700, row title 15/600, body 13/400, label 12/600, reward 19/700, and
+/// the currency's small capitals 11/600. Buttons are 15/600 (design.md §3).
+enum Role {
+    static let title: CGFloat = 22, sheetTitle: CGFloat = 18, rowTitle: CGFloat = 15
+    static let body: CGFloat = 13, label: CGFloat = 12, reward: CGFloat = 19, caps: CGFloat = 11, button: CGFloat = 15
+}
+
 /// Motion tokens from `resources/css/wall.css`.
 enum Motion {
     static let fast = 0.150, base = 0.260, enter = 0.640, exit = 0.200, stagger = 0.085
@@ -68,7 +76,13 @@ enum Fonts {
         #endif
     }
 
+    /// Sora at `size`, scaled with the reader's text size (Dynamic Type) up
+    /// to twice the base, past which the rows stop being rows.
     static func font(_ size: CGFloat, _ weight: Int) -> UIFont {
+        UIFontMetrics.default.scaledFont(for: base(size, weight), maximumPointSize: size * 2)
+    }
+
+    private static func base(_ size: CGFloat, _ weight: Int) -> UIFont {
         if !rtl {
             let name = weight >= 700 ? "Sora-Bold" : weight >= 600 ? "Sora-SemiBold" : "Sora-Regular"
             if let f = UIFont(name: name, size: size) { return f }
@@ -85,7 +99,7 @@ extension UILabel {
         font = Fonts.font(size, weight)
         textColor = color
         numberOfLines = lines
-        adjustsFontForContentSizeCategory = false
+        adjustsFontForContentSizeCategory = true
         semanticContentAttribute = Fonts.rtl ? .forceRightToLeft : .forceLeftToRight
         textAlignment = .natural
     }
@@ -139,6 +153,25 @@ enum Press {
 
 class PressButton: UIButton {
     var rest: CGAffineTransform = .identity
+    /// Extra touch area around a control drawn smaller than 44pt.
+    var hitOutset: CGFloat = 0
+    /// Fully rounded at whatever height the reader's text size gives it.
+    var pill = false
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if pill { layer.cornerRadius = bounds.height / 2 }
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -hitOutset, dy: -hitOutset).contains(point)
+    }
+
+    /// The title follows the reader's text size like every label does.
+    override func setTitle(_ title: String?, for state: UIControl.State) {
+        super.setTitle(title, for: state)
+        titleLabel?.adjustsFontForContentSizeCategory = true
+    }
 
     override var isHighlighted: Bool {
         didSet { if oldValue != isHighlighted { Press.apply(self, isHighlighted, rest: rest) } }

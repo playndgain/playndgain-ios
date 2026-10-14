@@ -97,6 +97,30 @@ final class ParserTests: XCTestCase {
         XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("\"payout\""))
     }
 
+    func testReadsTheNewerWallFieldsAndFallsBackWithoutThem() throws {
+        let newer = #"{"status":"ok","data":{"offers":[{"id":3,"name":"Royal Match","instructions":"old","subtitle":"Reach level 50","reward_label":"6,125","multi_reward":true,"up_to":true,"repeatable":false,"opening_label":"Opening Royal Match…"}]}}"#
+        let o = try XCTUnwrap(try Parser.parse(http: 200, data: Data(newer.utf8)).offers.first)
+        XCTAssertEqual(o.instructions, "Reach level 50")
+        XCTAssertTrue(o.upTo)
+        XCTAssertFalse(o.repeatable)
+        XCTAssertEqual(o.openingLabel, "Opening Royal Match…")
+
+        // A 1.0 wall: `multi_reward` meant both, and there is no cover sentence.
+        let older = #"{"status":"ok","data":{"offers":[{"id":3,"name":"X","instructions":"old","reward_label":"1","multi_reward":true}]}}"#
+        let old = try XCTUnwrap(try Parser.parse(http: 200, data: Data(older.utf8)).offers.first)
+        XCTAssertEqual(old.instructions, "old")
+        XCTAssertTrue(old.upTo)
+        XCTAssertTrue(old.repeatable)
+        XCTAssertNil(old.openingLabel)
+
+        let detail = #"{"status":"ok","data":{"id":3,"name":"X","reward_label":"5","steps":[{"name":"Install","reward":"Required","required":true},{"name":"Play","reward":"5"}],"device_labels":["iOS"]}}"#
+        let d = try XCTUnwrap(try Parser.parse(http: 200, data: Data(detail.utf8)).detail)
+        XCTAssertTrue(d.steps[0].required)
+        XCTAssertFalse(d.steps[1].required)
+        XCTAssertTrue(d.upTo)
+        XCTAssertEqual(d.deviceLabels, ["iOS"])
+    }
+
     func testParsesDetailHistoryABlockAndAnInvalidLink() throws {
         let d = try XCTUnwrap(try Parser.parse(http: 200, data: fixture("offer_ok")).detail)
         XCTAssertEqual(d.important.count, 4)

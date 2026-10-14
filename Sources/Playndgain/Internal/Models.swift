@@ -38,13 +38,29 @@ struct OfferCard {
     let id: Int, name: String, instructions: String, rewardLabel: String
     let multiReward: Bool, stepsLabel: String?, peopleLabel: String?
     let featured: Bool, test: Bool, categories: [String], iconURL: URL?, clickURL: URL?
+    /// "Up to": the steps pay separately. `up_to` from a newer wall, else `multi_reward`.
+    var upTo = false
+    /// Truly repeatable. A 1.0 wall only had `multi_reward` for both meanings.
+    var repeatable = false
+    /// The cover's finished sentence ("Opening Royal Match…"), when the wall sends it.
+    var openingLabel: String?
+}
+
+struct OfferStep {
+    let name: String, reward: String
+    /// No figure: the step has to be done but pays nothing on its own.
+    var required = false
 }
 
 struct OfferDetail {
     let id: Int, name: String, rewardLabel: String
-    let steps: [(String, String)], stepsNote: String?, notes: [String]
+    let steps: [OfferStep], stepsNote: String?, notes: [String]
     let devices: [String], countries: [String], osMin: String?, important: [String]
     let iconURL: URL?, clickURL: URL?
+    var upTo = false
+    /// "iOS", "Android" in the wall's language, when the wall sends them.
+    var deviceLabels: [String] = []
+    var openingLabel: String?
 }
 
 struct HistoryRow {
@@ -111,24 +127,34 @@ enum Parser {
 
     private static func offer(_ o: [String: Any]) -> OfferCard? {
         guard let id = o["id"] as? Int, id > 0 else { return nil }
-        return OfferCard(
-            id: id, name: s(o["name"]), instructions: s(o["instructions"]), rewardLabel: s(o["reward_label"]),
+        let multi = o["multi_reward"] as? Bool ?? false
+        var card = OfferCard(
+            id: id, name: s(o["name"]), instructions: (o["subtitle"] as? String) ?? s(o["instructions"]), rewardLabel: s(o["reward_label"]),
             multiReward: o["multi_reward"] as? Bool ?? false, stepsLabel: o["steps_label"] as? String, peopleLabel: o["people_label"] as? String,
             featured: o["featured"] as? Bool ?? false, test: o["test"] as? Bool ?? false,
             categories: o["categories"] as? [String] ?? [], iconURL: url(o["icon_url"]), clickURL: url(o["click_url"])
         )
+        card.upTo = o["up_to"] as? Bool ?? multi
+        card.repeatable = o["repeatable"] as? Bool ?? multi
+        card.openingLabel = (o["opening_label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return card
     }
 
     private static func detail(_ o: [String: Any]) -> OfferDetail {
-        OfferDetail(
+        let steps = (o["steps"] as? [[String: Any]] ?? []).map { OfferStep(name: s($0["name"]), reward: s($0["reward"]), required: $0["required"] as? Bool ?? false) }
+        var d = OfferDetail(
             id: o["id"] as? Int ?? 0, name: s(o["name"]), rewardLabel: s(o["reward_label"]),
-            steps: (o["steps"] as? [[String: Any]] ?? []).map { (s($0["name"]), s($0["reward"])) },
+            steps: steps,
             stepsNote: o["steps_note"] as? String, notes: o["notes"] as? [String] ?? [],
             devices: o["devices"] as? [String] ?? [],
             countries: (o["countries"] as? [[String: Any]] ?? []).map { s($0["name"]) },
             osMin: o["os_min_version"] as? String, important: o["important"] as? [String] ?? [],
             iconURL: url(o["icon_url"]), clickURL: url(o["click_url"])
         )
+        d.upTo = o["up_to"] as? Bool ?? (steps.count > 1)
+        d.deviceLabels = o["device_labels"] as? [String] ?? []
+        d.openingLabel = (o["opening_label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return d
     }
 
     private static func row(_ o: [String: Any]) -> HistoryRow {
