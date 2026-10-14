@@ -6,7 +6,7 @@ Pod::Spec.new do |s|
   s.license          = { :type => 'Apache-2.0', :file => 'LICENSE' }
   s.author           = { 'Playndgain' => 'support@playndgain.com' }
   # The owner fills this in when the repository is published.
-  s.source           = { :git => '', :tag => s.version.to_s }
+  s.source           = { :git => 'https://github.com/playndgain/playndgain-ios.git', :tag => s.version.to_s }
   s.ios.deployment_target = '15.0'
   s.swift_version    = '5.9'
   s.source_files     = 'Sources/Playndgain/**/*.swift'
