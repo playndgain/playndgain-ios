@@ -7,9 +7,10 @@ final class DetailViewController: UIViewController {
     private let palette: Palette
     private let strings: Strings
     private let currency: String
-    private let onStart: (URL?) -> Void
+    private let onStart: (URL?, String) -> Void
+    private let haptic = UIImpactFeedbackGenerator(style: .light)
 
-    init(response: WallResponse, palette: Palette, strings: Strings, currency: String, onStart: @escaping (URL?) -> Void) {
+    init(response: WallResponse, palette: Palette, strings: Strings, currency: String, onStart: @escaping (URL?, String) -> Void) {
         self.response = response
         self.palette = palette
         self.strings = strings
@@ -56,8 +57,16 @@ final class DetailViewController: UIViewController {
         tile.widthAnchor.constraint(equalToConstant: 56).isActive = true
         tile.heightAnchor.constraint(equalToConstant: 56).isActive = true
         head.addArrangedSubview(tile)
-        let upTo = d.steps.count > 1 ? strings.or("up_to", "Up to") + " " : ""
-        let ht = UIStackView(arrangedSubviews: [UILabel(d.name, 18, 700, p.text, lines: 2), UILabel("\(upTo)\(d.rewardLabel) \(currency)", 14, 600, p.muted)])
+        // The figure as the row has it: "Up to", then "+6,125", then the currency.
+        let reward = UIStackView()
+        reward.alignment = .firstBaseline
+        reward.spacing = 6
+        reward.semanticContentAttribute = view.semanticContentAttribute
+        if d.steps.count > 1 { reward.addArrangedSubview(caps(strings.or("up_to", "Up to"))) }
+        reward.addArrangedSubview(figure("+" + d.rewardLabel, 19))
+        reward.addArrangedSubview(caps(currency))
+        reward.addArrangedSubview(UIView())
+        let ht = UIStackView(arrangedSubviews: [UILabel(d.name, 18, 700, p.text, lines: 2), reward])
         ht.axis = .vertical
         ht.spacing = 4
         head.addArrangedSubview(ht)
@@ -80,8 +89,12 @@ final class DetailViewController: UIViewController {
             num.heightAnchor.constraint(equalToConstant: 26).isActive = true
             let name = UILabel(step.0, 14, 400, p.text, lines: 0)
             name.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            let reward = UILabel(step.1, 14, 600, p.text)
-            reward.font = reward.font.withMonospacedDigits()
+            // The same trailing column as the list, so the step figures line up.
+            let reward = UIStackView(arrangedSubviews: [figure("+" + step.1, 14)])
+            reward.axis = .vertical
+            reward.alignment = Fonts.rtl ? .leading : .trailing
+            reward.pinLedgerWidth(72)
+            name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             let row = UIStackView(arrangedSubviews: [num, name, reward])
             row.spacing = 12
             row.alignment = .center
@@ -131,13 +144,13 @@ final class DetailViewController: UIViewController {
             col.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
         ])
 
-        let start = UIButton(type: .custom)
-        start.setTitle(strings.or("offer.start", "Start this offer"), for: .normal)
-        start.titleLabel?.font = Fonts.font(15, 600)
-        start.setTitleColor(p.onPrimary, for: .normal)
-        _ = start.rounded(p.primary, 26)
+        // The one primary on the sheet, and the one glow on the wall.
+        let start = PrimaryButton(strings.or("offer.start", "Start this offer"), p, glow: true)
         start.heightAnchor.constraint(equalToConstant: 52).isActive = true
-        start.addAction(for: .touchUpInside) { [weak self] in self?.onStart(d.clickURL) }
+        start.addAction(for: .touchUpInside) { [weak self] in
+            self?.haptic.impactOccurred()
+            self?.onStart(d.clickURL, d.name)
+        }
         let terms = UILabel(strings["offer.terms"], 11, 400, p.faint, lines: 0)
         terms.textAlignment = .center
 
@@ -145,7 +158,7 @@ final class DetailViewController: UIViewController {
         footer.axis = .vertical
         footer.spacing = 10
         footer.isLayoutMarginsRelativeArrangement = true
-        footer.layoutMargins = UIEdgeInsets(top: 8, left: 20, bottom: 12, right: 20)
+        footer.layoutMargins = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: 20)
 
         let outer = UIStackView(arrangedSubviews: [scroll, footer])
         outer.axis = .vertical
@@ -157,6 +170,28 @@ final class DetailViewController: UIViewController {
             outer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             outer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        haptic.prepare()
+    }
+
+    private func figure(_ text: String, _ size: CGFloat) -> UILabel {
+        let l = UILabel(text, size, 700, palette.text)
+        l.font = l.font.withMonospacedDigits()
+        // "+6,125" keeps its sign in front on the Arabic wall too.
+        l.semanticContentAttribute = .forceLeftToRight
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return l
+    }
+
+    private func caps(_ text: String) -> UILabel {
+        let l = UILabel(text, 11, 600, palette.faint)
+        if !Fonts.rtl {
+            l.attributedText = NSAttributedString(string: text.uppercased(), attributes: [.kern: 0.6, .font: l.font!, .foregroundColor: palette.faint])
+        }
+        return l
     }
 
     private func place(_ v: UIView, in parent: UIView, top: CGFloat) {

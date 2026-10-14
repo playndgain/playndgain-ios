@@ -73,12 +73,49 @@ final class OfferResolutionTests: XCTestCase {
         XCTAssertEqual(r.settled(ticket), .landing)
     }
 
-    func testTimeoutRevealsAndLaterStoreTapsAreInterceptedEachTime() {
+    func testATimeoutRevealsNothingAndTheClickStillResolves() {
         var r = OfferResolution()
         _ = r.navigate(to: click, mainFrame: true)
+        r.didCommit()
         XCTAssertEqual(r.timedOut(), .timeout)
+        XCTAssertEqual(r.phase, .resolving)
+        // Each wait that runs out is reported again.
+        XCTAssertEqual(r.timedOut(), .timeout)
+        XCTAssertEqual(r.navigate(to: tracker, mainFrame: true), .allow)
+        XCTAssertEqual(r.navigate(to: store, mainFrame: true), .resolve(.store(id: "123", url: store)))
+        XCTAssertNil(r.timedOut())
+
+        var app = OfferResolution()
+        _ = app.navigate(to: click, mainFrame: true)
+        _ = app.timedOut()
+        XCTAssertEqual(app.navigate(to: deepLink, mainFrame: true), .resolve(.app(deepLink)))
+    }
+
+    func testAPageThatSettlesAfterATimeoutIsRevealed() {
+        var r = OfferResolution()
+        _ = r.navigate(to: click, mainFrame: true)
+        r.didCommit()
+        XCTAssertEqual(r.timedOut(), .timeout)
+        let ticket = r.didFinish()!
+        XCTAssertEqual(r.settled(ticket), .landing)
         XCTAssertEqual(r.phase, .revealed)
         XCTAssertNil(r.timedOut())
+    }
+
+    func testAFailureAfterATimeoutIsStillTheClickFailing() {
+        var r = OfferResolution()
+        _ = r.navigate(to: click, mainFrame: true)
+        r.didCommit()
+        _ = r.timedOut()
+        XCTAssertEqual(r.didFail(), .failed)
+        XCTAssertEqual(r.phase, .done)
+    }
+
+    func testARevealedPageInterceptsStoreTapsEachTime() {
+        var r = OfferResolution()
+        _ = r.navigate(to: click, mainFrame: true)
+        _ = r.settled(r.didFinish()!)
+        XCTAssertEqual(r.phase, .revealed)
         XCTAssertEqual(r.navigate(to: tracker, mainFrame: true), .allow)
         XCTAssertEqual(r.navigate(to: store, mainFrame: true), .intercept(.store(id: "123", url: store)))
         XCTAssertEqual(r.navigate(to: store, mainFrame: true), .intercept(.store(id: "123", url: store)))
@@ -128,7 +165,8 @@ final class OfferResolutionTests: XCTestCase {
         cancelled.cancel()
         XCTAssertNil(cancelled.appUnopened())
         var revealed = OfferResolution()
-        _ = revealed.timedOut()
+        _ = revealed.navigate(to: click, mainFrame: true)
+        _ = revealed.settled(revealed.didFinish()!)
         _ = revealed.navigate(to: deepLink, mainFrame: true)
         XCTAssertNil(revealed.appUnopened())
     }
@@ -184,7 +222,8 @@ final class OfferFlowTests: XCTestCase {
     /// product loads looks like a failed load and the click leaves the app.
     func testTheStoreSheetIsHeldWhileItsProductLoads() {
         let host = UIViewController()
-        let flow = OfferFlow(host: host, palette: .fallback, closeLabel: "Close", leaving: { _ in }, ended: { _ in })
+        let copy = CoverCopy(opening: "Opening", stalledTitle: "Still opening", stalledBody: "", keepWaiting: "Keep waiting", close: "Close")
+        let flow = OfferFlow(host: host, palette: .fallback, copy: copy, leaving: { _ in }, ended: { _ in })
         weak var sheet: SKStoreProductViewController?
         autoreleasepool {
             flow.showStore("284882215", URL(string: "https://apps.apple.com/app/id284882215")!)

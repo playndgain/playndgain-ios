@@ -105,6 +105,7 @@ final class ParserTests: XCTestCase {
         let h = try Parser.parse(http: 200, data: fixture("history_ok"))
         XCTAssertEqual(h.history.first?.partner, "Partner wall")
         XCTAssertEqual(h.history.first?.statusLabel, "Credited")
+        XCTAssertEqual(h.history.first?.status, "approved")
 
         let b = try Parser.parse(http: 403, data: fixture("blocked"))
         XCTAssertEqual(b.status, "blocked")

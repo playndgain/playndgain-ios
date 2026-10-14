@@ -10,6 +10,18 @@ enum OfferFlowEnd {
     case leftApp
     /// Nothing loaded: the wall stays and says the offer could not be opened.
     case failed
+    /// Closed from the cover while the click was still opening: nothing was shown.
+    case cancelled
+}
+
+/// The words on the loading cover, from the wall's strings with bundled
+/// English and Arabic behind them.
+struct CoverCopy {
+    let opening: String
+    let stalledTitle: String
+    let stalledBody: String
+    let keepWaiting: String
+    let close: String
 }
 
 /// One offer click inside the app: a loading cover while `OfferOpener`
@@ -19,7 +31,7 @@ enum OfferFlowEnd {
 final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
     private weak var host: UIViewController?
     private let palette: Palette
-    private let closeLabel: String
+    private let copy: CoverCopy
     private let leaving: (Bool) -> Void
     private let ended: (OfferFlowEnd) -> Void
     private var opener: OfferOpener?
@@ -36,11 +48,11 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
     /// `leaving(true)` comes just before the click leaves the app, and
     /// `leaving(false)` if the system then refuses to open it. `ended` is
     /// called once.
-    init(host: UIViewController, palette: Palette, closeLabel: String,
+    init(host: UIViewController, palette: Palette, copy: CoverCopy,
          leaving: @escaping (Bool) -> Void, ended: @escaping (OfferFlowEnd) -> Void) {
         self.host = host
         self.palette = palette
-        self.closeLabel = closeLabel
+        self.copy = copy
         self.leaving = leaving
         self.ended = ended
     }
@@ -52,9 +64,10 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
             onIntercept: { [weak self] in self?.intercepted($0) }
         )
         opener.onGone = { [weak self] in self?.finish(.returned) }
-        let sheet = OfferSheet(webView: opener.webView, palette: palette, closeLabel: closeLabel) { [weak self] in
-            self?.finish(.returned)
-        }
+        let sheet = OfferSheet(webView: opener.webView, palette: palette, copy: copy,
+                               onClose: { [weak self] in self?.finish(.returned) },
+                               onCancel: { [weak self] in self?.finish(.cancelled) },
+                               onKeepWaiting: { [weak self] in self?.opener?.keepWaiting() })
         sheet.translatesAutoresizingMaskIntoConstraints = false
         // No keyboard from the wall's search field over the page.
         host.view.endEditing(true)
@@ -79,7 +92,8 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
         switch o {
         case .store(let id, let url): storeEndsClick = true; showStore(id, url)
         case .app(let url): openApp(url)
-        case .landing, .timeout: sheet?.reveal()
+        case .landing: sheet?.reveal()
+        case .timeout: sheet?.showStalled()
         case .failed: finish(.failed)
         }
     }
@@ -176,17 +190,32 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
 /// over the wall. While the click resolves, the web view sits in the sheet at
 /// almost zero opacity under the cover. It stays in the window and is not
 /// hidden, so WebKit keeps running the page's timers the redirects use.
+///
+/// The cover names the offer it is opening. When a wait runs out it says the
+/// offer is still opening, with Keep waiting (the same load, waited on longer)
+/// and Close; a page is only revealed once it has settled.
 final class OfferSheet: UIView {
     private let panel = UIView()
     private let cover = UIView()
+    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let title: UILabel
+    private let body: UILabel
+    private let actions = UIStackView()
     private let webView: WKWebView
     private let palette: Palette
+    private let copy: CoverCopy
+    private let onKeepWaiting: () -> Void
 
-    init(webView: WKWebView, palette: Palette, closeLabel: String, onClose: @escaping () -> Void) {
+    init(webView: WKWebView, palette: Palette, copy: CoverCopy, onClose: @escaping () -> Void,
+         onCancel: @escaping () -> Void, onKeepWaiting: @escaping () -> Void) {
         self.webView = webView
         self.palette = palette
-        super.init(frame: .zero)
+        self.copy = copy
+        self.onKeepWaiting = onKeepWaiting
         let p = palette
+        title = UILabel(copy.opening, 15, 600, p.text, lines: 2)
+        body = UILabel(copy.stalledBody, 13, 400, p.muted, lines: 0)
+        super.init(frame: .zero)
         // The same scrim the Android SDK puts behind its sheets.
         backgroundColor = UIColor.black.withAlphaComponent(0.55)
         semanticContentAttribute = Fonts.rtl ? .forceRightToLeft : .forceLeftToRight
@@ -200,8 +229,8 @@ final class OfferSheet: UIView {
         panel.isUserInteractionEnabled = false
         panel.accessibilityElementsHidden = true
 
-        let close = UIButton(type: .custom)
-        close.setTitle(closeLabel, for: .normal)
+        let close = PressButton(type: .custom)
+        close.setTitle(copy.close, for: .normal)
         close.titleLabel?.font = Fonts.font(15, 600)
         close.setTitleColor(p.text, for: .normal)
         close.contentEdgeInsets = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
@@ -224,16 +253,47 @@ final class OfferSheet: UIView {
         panel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(panel)
 
-        // The wall's own loading spinner, on a card so it reads on the scrim.
-        let spinner = UIActivityIndicatorView(style: .medium)
+        // The wall's own loading state, on a card so it reads on the scrim.
         spinner.color = p.muted
         spinner.startAnimating()
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        _ = cover.rounded(p.card, p.radius)
-        cover.addSubview(spinner)
+        title.textAlignment = .center
+        body.textAlignment = .center
+        body.isHidden = true
+
+        let wait = PrimaryButton(copy.keepWaiting, p, size: 14)
+        wait.contentEdgeInsets = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 24)
+        wait.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        wait.accessibilityIdentifier = "playndgain.offer.wait"
+        wait.addAction(for: .touchUpInside) { [weak self] in self?.keepWaiting() }
+        let cancel = PressButton(type: .custom)
+        cancel.setTitle(copy.close, for: .normal)
+        cancel.titleLabel?.font = Fonts.font(14, 600)
+        cancel.setTitleColor(p.text, for: .normal)
+        _ = cancel.rounded(.clear, 22, border: p.lineStrong)
+        cancel.contentEdgeInsets = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 24)
+        cancel.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        cancel.accessibilityIdentifier = "playndgain.offer.cancel"
+        cancel.addAction(for: .touchUpInside, onCancel)
+        actions.addArrangedSubview(wait)
+        actions.addArrangedSubview(cancel)
+        actions.axis = .vertical
+        actions.alignment = .fill
+        actions.spacing = 10
+        actions.isHidden = true
+
+        let stack = UIStackView(arrangedSubviews: [spinner, title, body, actions])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 12
+        stack.setCustomSpacing(20, after: body)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        _ = cover.rounded(p.card, p.radius, border: p.line)
+        cover.addSubview(stack)
         cover.translatesAutoresizingMaskIntoConstraints = false
         addSubview(cover)
 
+        let preferred = cover.widthAnchor.constraint(equalToConstant: 300)
+        preferred.priority = .defaultHigh
         NSLayoutConstraint.activate([
             panel.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 12),
             panel.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -245,14 +305,41 @@ final class OfferSheet: UIView {
             col.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
             cover.centerXAnchor.constraint(equalTo: centerXAnchor),
             cover.centerYAnchor.constraint(equalTo: centerYAnchor),
-            cover.widthAnchor.constraint(equalToConstant: 64),
-            cover.heightAnchor.constraint(equalToConstant: 64),
-            spinner.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: cover.centerYAnchor),
+            preferred,
+            cover.leadingAnchor.constraint(greaterThanOrEqualTo: safeAreaLayoutGuide.leadingAnchor, constant: 32),
+            stack.topAnchor.constraint(equalTo: cover.topAnchor, constant: 24),
+            stack.bottomAnchor.constraint(equalTo: cover.bottomAnchor, constant: -20),
+            stack.leadingAnchor.constraint(equalTo: cover.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: cover.trailingAnchor, constant: -20),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// A wait ran out with nothing settled: say so, and offer to keep waiting.
+    func showStalled() {
+        guard cover.superview != nil else { return }
+        spinner.stopAnimating()
+        spinner.isHidden = true
+        title.text = copy.stalledTitle
+        title.font = Fonts.font(17, 700)
+        body.isHidden = false
+        actions.isHidden = false
+        UIAccessibility.post(notification: .screenChanged, argument: title)
+    }
+
+    /// Back to the spinner, waiting longer on the same load.
+    private func keepWaiting() {
+        guard cover.superview != nil else { return }
+        spinner.isHidden = false
+        spinner.startAnimating()
+        title.text = copy.opening
+        title.font = Fonts.font(15, 600)
+        body.isHidden = true
+        actions.isHidden = true
+        UIAccessibility.post(notification: .announcement, argument: copy.opening)
+        onKeepWaiting()
+    }
 
     /// The click landed on a web page: the sheet rises with it.
     func reveal() {

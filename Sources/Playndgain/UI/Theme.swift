@@ -11,9 +11,13 @@ struct Palette {
     var muted: UIColor { Colors.mix(text, bg, 0.74) }
     var faint: UIColor { Colors.mix(text, bg, 0.64) }
     var line: UIColor { text.withAlphaComponent(0.10) }
+    var lineStrong: UIColor { text.withAlphaComponent(0.18) }
     var tile: UIColor { Colors.mix(text, card, 0.08) }
     var raise: UIColor { Colors.mix(text, card, 0.04) }
     var primarySoft: UIColor { Colors.mix(primary, card, 0.14) }
+    /// The two stops of `--wall-primary-fill`.
+    var primaryHi: UIColor { Colors.mix(primary, .white, 0.84) }
+    var primaryLo: UIColor { Colors.mix(primary, .black, 0.82) }
     var ink: UIColor { text }
     var onInk: UIColor { bg }
 
@@ -114,5 +118,99 @@ final class PaddedLabel: UILabel {
     override var intrinsicContentSize: CGSize {
         let s = super.intrinsicContentSize
         return CGSize(width: s.width + insets.left + insets.right, height: s.height + insets.top + insets.bottom)
+    }
+}
+
+/// The pressed state every tappable shares: a short dim and a 0.97 scale over
+/// `--motion-fast`, the dim alone under Reduce Motion. `rest` is the transform
+/// the view keeps when not pressed (the RTL flip in a mirrored row).
+enum Press {
+    static let scale: CGFloat = 0.97
+    static let dim: CGFloat = 0.85
+
+    static func apply(_ v: UIView, _ down: Bool, rest: CGAffineTransform = .identity) {
+        let changes = {
+            v.alpha = down ? dim : 1
+            if Motion.enabled { v.transform = down ? rest.scaledBy(x: scale, y: scale) : rest }
+        }
+        UIView.animate(withDuration: Motion.fast, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: changes)
+    }
+}
+
+class PressButton: UIButton {
+    var rest: CGAffineTransform = .identity
+
+    override var isHighlighted: Bool {
+        didSet { if oldValue != isHighlighted { Press.apply(self, isHighlighted, rest: rest) } }
+    }
+}
+
+/// A container that behaves like a button: the rail's cards.
+final class PressControl: UIControl {
+    var rest: CGAffineTransform = .identity
+
+    override var isHighlighted: Bool {
+        didSet { if oldValue != isHighlighted { Press.apply(self, isHighlighted, rest: rest) } }
+    }
+}
+
+/// `--wall-primary-fill`: the publisher's colour as two stops at 135 degrees.
+final class GradientView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    init(_ p: Palette) {
+        super.init(frame: .zero)
+        let g = layer as! CAGradientLayer
+        g.colors = [p.primaryHi.cgColor, p.primaryLo.cgColor]
+        g.startPoint = CGPoint(x: 0, y: 0)
+        g.endPoint = CGPoint(x: 1, y: 1)
+        isUserInteractionEnabled = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+}
+
+/// A pill filled with the primary gradient, the on-primary label over it, and
+/// optionally the wall's one glow under it (`--wall-glow`: a 1px ring at 25%
+/// and a soft drop of the same colour). Only Start carries the glow.
+final class PrimaryButton: PressButton {
+    private let fill: GradientView
+
+    init(_ title: String, _ p: Palette, size: CGFloat = 15, glow: Bool = false) {
+        fill = GradientView(p)
+        super.init(frame: .zero)
+        setTitle(title, for: .normal)
+        titleLabel?.font = Fonts.font(size, 600)
+        setTitleColor(p.onPrimary, for: .normal)
+        fill.clipsToBounds = true
+        insertSubview(fill, at: 0)
+        if glow {
+            fill.layer.borderWidth = 1
+            fill.layer.borderColor = p.primary.withAlphaComponent(0.25).cgColor
+            layer.shadowColor = p.primary.cgColor
+            layer.shadowOpacity = 0.55
+            layer.shadowOffset = CGSize(width: 0, height: 10)
+            layer.shadowRadius = 12
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        fill.frame = bounds
+        fill.layer.cornerRadius = bounds.height / 2
+        if layer.shadowOpacity > 0 {
+            layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: bounds.height / 2).cgPath
+        }
+        sendSubviewToBack(fill)
+    }
+}
+
+enum Symbols {
+    /// An SF Symbol drawn in `color`, sized to sit with Sora at `size`.
+    static func image(_ name: String, _ size: CGFloat, _ color: UIColor, weight: UIImage.SymbolWeight = .semibold) -> UIImage? {
+        UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: size, weight: weight))?
+            .withTintColor(color, renderingMode: .alwaysOriginal)
     }
 }

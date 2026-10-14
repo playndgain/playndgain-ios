@@ -19,6 +19,8 @@ struct WallResponse {
 struct AppInfo {
     let name: String
     let currencyName: String
+    /// The wall's language (`en`, `ar`), for dates written the player's way.
+    var locale: String = "en"
     let rtl: Bool
     let theme: ThemeInfo
     let balance: String?
@@ -46,7 +48,7 @@ struct OfferDetail {
 }
 
 struct HistoryRow {
-    let name: String, iconURL: URL?, at: String?, statusLabel: String
+    let name: String, iconURL: URL?, at: String?, status: String, statusLabel: String
     let rewardLabel: String?, reason: String?, partner: String?
 }
 
@@ -93,7 +95,7 @@ enum Parser {
     private static func app(_ o: [String: Any]) -> AppInfo {
         let t = o["theme"] as? [String: Any] ?? [:]
         return AppInfo(
-            name: s(o["name"]), currencyName: s(o["currency_name"]), rtl: o["rtl"] as? Bool ?? false,
+            name: s(o["name"]), currencyName: s(o["currency_name"]), locale: (o["locale"] as? String) ?? "en", rtl: o["rtl"] as? Bool ?? false,
             theme: ThemeInfo(
                 primary: Colors.parse(t["primary"] as? String, fallback: 0xFFB020),
                 onPrimary: Colors.parse(t["on_primary"] as? String, fallback: 0x0B0D10),
@@ -131,7 +133,7 @@ enum Parser {
 
     private static func row(_ o: [String: Any]) -> HistoryRow {
         HistoryRow(
-            name: s(o["name"]), iconURL: url(o["icon_url"]), at: o["at"] as? String, statusLabel: s(o["status_label"]),
+            name: s(o["name"]), iconURL: url(o["icon_url"]), at: o["at"] as? String, status: s(o["status"]), statusLabel: s(o["status_label"]),
             rewardLabel: o["reward_label"] as? String, reason: o["reason"] as? String, partner: o["partner"] as? String
         )
     }

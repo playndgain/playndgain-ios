@@ -11,7 +11,8 @@ enum OfferOutcome: Equatable {
     case app(URL)
     /// A web page finished loading and stayed: reveal the web view.
     case landing
-    /// No store in time: reveal the web view with whatever it holds.
+    /// Nothing settled in time: the cover says it is still opening. The
+    /// click keeps resolving; a page is only shown once it has settled.
     case timeout
     /// Nothing usable loaded: the wall's error path.
     case failed
@@ -25,7 +26,7 @@ struct OfferResolution {
     enum Phase: Equatable {
         /// Following the chain, web view not yet visible.
         case resolving
-        /// Landing or timeout: the user sees the web view and browses.
+        /// A settled landing: the user sees the web view and browses.
         case revealed
         /// Resolved to the store, an app, a failure, or cancelled.
         case done
@@ -108,10 +109,11 @@ struct OfferResolution {
         return .failed
     }
 
-    mutating func timedOut() -> OfferOutcome? {
-        guard phase == .resolving else { return nil }
-        phase = .revealed
-        return .timeout
+    /// The wait ran out with nothing settled. The phase does not change: a
+    /// store, an app or a settled page after this still resolves the click,
+    /// and each wait that runs out is reported again.
+    func timedOut() -> OfferOutcome? {
+        phase == .resolving ? .timeout : nil
     }
 
     /// The system could not open the app link the click resolved to: show
@@ -139,8 +141,8 @@ struct OfferResolution {
 
 /// Follows one offer click inside the app. Loads the allowed click URL once in
 /// a web view that is not shown, watches every navigation, and reports where
-/// it ended: the store, another app, a web landing, a timeout or a failure.
-/// The caller shows `webView` itself for a landing or timeout, never a fresh
+/// it ended: the store, another app, a web landing or a failure, and says when
+/// a wait ran out first. The caller shows `webView` itself for a landing, never a fresh
 /// browser: that would request the click chain again in another cookie jar.
 /// The caller adds `webView` to its window, hidden, before `start`: an
 /// offscreen web view slows the script timers trackers redirect with.
@@ -160,9 +162,11 @@ final class OfferOpener: NSObject, WKNavigationDelegate, WKUIDelegate {
     var onGone: (() -> Void)?
     private var timer: DispatchWorkItem?
 
-    /// `onResolve` is called once per click, unless the opener is cancelled
-    /// first; after `.app` it may be called once more, from `appUnopened()`. `onIntercept` is called for each store or app link
-    /// the user follows from a revealed page.
+    /// `onResolve` resolves the click once, unless the opener is cancelled
+    /// first; after `.app` it may be called once more, from `appUnopened()`.
+    /// Before that it hears `.timeout` for each wait that runs out.
+    /// `onIntercept` is called for each store or app link the user follows
+    /// from a revealed page.
     init(timeout: TimeInterval = 8, settle: TimeInterval = 1.5,
          onResolve: @escaping (OfferOutcome) -> Void,
          onIntercept: @escaping (OfferOutcome) -> Void) {
@@ -185,14 +189,26 @@ final class OfferOpener: NSObject, WKNavigationDelegate, WKUIDelegate {
     func start(_ url: URL, base: URL) -> Bool {
         guard clickURL == nil, resolution.phase == .resolving, Links.isAllowedClick(url, base: base) else { return false }
         clickURL = url
+        armTimer()
+        webView.load(URLRequest(url: url))
+        return true
+    }
+
+    /// The player chose to keep waiting after `.timeout`: one more wait on
+    /// the same load. Never loads anything.
+    func keepWaiting() {
+        guard clickURL != nil, resolution.phase == .resolving else { return }
+        armTimer()
+    }
+
+    private func armTimer() {
+        timer?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self = self, let o = self.resolution.timedOut() else { return }
             self.onResolve(o)
         }
         timer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: work)
-        webView.load(URLRequest(url: url))
-        return true
     }
 
     /// The system refused the app link from `.app`: fall back to the page,
@@ -215,7 +231,6 @@ final class OfferOpener: NSObject, WKNavigationDelegate, WKUIDelegate {
         if resolution.phase == .done { webView.stopLoading() }
         onResolve(o)
     }
-
 
     // MARK: WKNavigationDelegate
 
