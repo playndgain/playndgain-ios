@@ -35,7 +35,27 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     private var offerFlow: OfferFlow?
 
     private let stack = UIStackView()
+    /// Offers and History each keep their own list, alive for as long as the
+    /// wall is open: switching crossfades between them and keeps each one's
+    /// scroll position; nothing above them is rebuilt.
     private let table = UITableView(frame: .zero, style: .plain)
+    private let historyTable = UITableView(frame: .zero, style: .plain)
+    private let historyBox = UIView()
+    private let historyEmpty = EmptyContent()
+    private let historySpinner = UIActivityIndicatorView(style: .medium)
+    private let body = UIView()
+    private var tabs: SegmentedTabs?
+    /// History is fetched in the background once the wall has loaded, and
+    /// again on a switch only when it is older than 30 s or a reward check
+    /// has happened since.
+    private var historyGate = LoadTickets()
+    private var historyAt: Date?
+    private var historyStale = false
+    private var historyLoading = false
+    private var historyFresh: Bool {
+        guard let at = historyAt, !historyStale else { return false }
+        return Date().timeIntervalSince(at) < 30
+    }
 
     init(options: PlayndgainOptions) {
         self.options = options
@@ -65,18 +85,38 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             fill,
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        table.dataSource = self
-        table.delegate = self
-        table.separatorStyle = .none
-        table.backgroundColor = .clear
-        table.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 32, right: 0)
-        table.keyboardDismissMode = .onDrag
-        table.rowHeight = UITableView.automaticDimension
-        table.estimatedRowHeight = 96
+        for t in [table, historyTable] {
+            t.dataSource = self
+            t.delegate = self
+            t.separatorStyle = .none
+            t.backgroundColor = .clear
+            t.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 32, right: 0)
+            t.keyboardDismissMode = .onDrag
+            t.rowHeight = UITableView.automaticDimension
+            t.estimatedRowHeight = 96
+        }
         table.register(OfferCell.self, forCellReuseIdentifier: OfferCell.id)
         table.register(RailCell.self, forCellReuseIdentifier: RailCell.id)
         table.register(EmptyCell.self, forCellReuseIdentifier: EmptyCell.id)
-        table.register(HistoryCell.self, forCellReuseIdentifier: HistoryCell.id)
+        historyTable.register(HistoryCell.self, forCellReuseIdentifier: HistoryCell.id)
+        historyTable.contentInset.top = 8
+        pin(historyTable, in: historyBox)
+        // Overlays, not fills: their own heights must not size the list area.
+        for v in [historyEmpty, historySpinner] as [UIView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            historyBox.addSubview(v)
+        }
+        NSLayoutConstraint.activate([
+            historyEmpty.topAnchor.constraint(equalTo: historyBox.topAnchor),
+            historyEmpty.leadingAnchor.constraint(equalTo: historyBox.leadingAnchor),
+            historyEmpty.trailingAnchor.constraint(equalTo: historyBox.trailingAnchor),
+            historySpinner.centerXAnchor.constraint(equalTo: historyBox.centerXAnchor),
+            historySpinner.centerYAnchor.constraint(equalTo: historyBox.centerYAnchor),
+        ])
+        pin(table, in: body)
+        pin(historyBox, in: body)
+        historySpinner.hidesWhenStopped = true
+        historyEmpty.isHidden = true
         NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         showLoading()
         load()
@@ -103,7 +143,8 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         guard previous?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory,
               let r = last, ["ok", "unplaced"].contains(r.status) else { return }
         buildChrome(r)
-        if section == .offers { buildOffers(r) } else { buildHistory(r.history) }
+        buildOffers(r)
+        applyHistory()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -119,7 +160,9 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     private func rewardCheck() {
         Playndgain.delegate?.playndgainRewardCheck()
+        historyStale = true
         load()
+        if section == .history { loadHistory() }
     }
 
     private func emitClosedOnce() {
@@ -132,10 +175,39 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     // MARK: Loading
 
+    /// The wall itself: the theme, the header and the offers.
     private func load() {
         let ticket = gate.next()
-        let done: (Result<WallResponse, PlayndgainError>) -> Void = { [weak self] r in self?.handle(r, ticket: ticket) }
-        if section == .offers { api.wall(sort: sort, systemDark: systemDark, done) } else { api.history(systemDark: systemDark, done) }
+        api.wall(sort: sort, systemDark: systemDark) { [weak self] r in self?.handle(r, ticket: ticket) }
+    }
+
+    /// History, in the background or on a switch. A failure while History is
+    /// not on screen stays quiet; it is fetched again on the switch.
+    private func loadHistory() {
+        historyLoading = true
+        let ticket = historyGate.next()
+        if historyAt == nil { historySpinner.color = palette.muted; historySpinner.startAnimating() }
+        api.history(systemDark: systemDark) { [weak self] result in
+            guard let self = self, self.historyGate.isCurrent(ticket) else { return }
+            self.historyLoading = false
+            self.historySpinner.stopAnimating()
+            switch result {
+            case .failure(let e):
+                guard self.section == .history, self.historyAt == nil else { return }
+                Playndgain.emit(e)
+                e == .network ? self.showOffline() : self.showNotice(nil, retry: true)
+            case .success(let r):
+                if ["ok", "unplaced"].contains(r.status) {
+                    self.historyRows = r.history
+                    self.historyAt = Date()
+                    self.historyStale = false
+                    self.applyHistory()
+                } else if self.section == .history {
+                    if let e = r.error { Playndgain.emit(e) }
+                    self.render(r)
+                }
+            }
+        }
     }
 
     private func handle(_ result: Result<WallResponse, PlayndgainError>, ticket: Int) {
@@ -177,7 +249,10 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
             entrance = true
             entered = []
             buildChrome(r)
-            if section == .offers { buildOffers(r) } else { buildHistory(r.history) }
+            buildOffers(r)
+            applyHistory()
+            show(section, animated: false)
+            if !historyFresh && !historyLoading { loadHistory() }
         case "consent_required": showConsent()
         default: showNotice(r)
         }
@@ -191,38 +266,37 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         let p = palette
         let name = options.title ?? app.name
 
+        // The app's name as a small label over "Earn Coins", the close at the
+        // trailing edge, and the balance before it when there is one.
         let bar = UIStackView()
         bar.axis = .horizontal
         bar.alignment = .center
-        bar.spacing = 10
+        bar.spacing = 12
         bar.isLayoutMarginsRelativeArrangement = true
         bar.layoutMargins = UIEdgeInsets(top: 12, left: 16, bottom: 10, right: 12)
         bar.semanticContentAttribute = view.semanticContentAttribute
 
-        let mark = UILabel(String(name.prefix(1)).uppercased(), Role.rowTitle, 700, p.primary)
-        mark.textAlignment = .center
-        _ = mark.rounded(p.tile, p.radius * 0.6)
-        mark.clipsToBounds = true
-        mark.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        mark.heightAnchor.constraint(equalToConstant: 36).isActive = true
-        mark.isAccessibilityElement = false
-        mark.adjustsFontForContentSizeCategory = false
-        mark.adjustsFontSizeToFitWidth = true
-        bar.addArrangedSubview(mark)
-
-        let titles = UIStackView(arrangedSubviews: [UILabel(name, Role.rowTitle, 600, p.text), UILabel(strings["earn"], Role.label, 400, p.muted)])
+        let appName = UILabel(name, Role.label, 600, p.muted)
+        let title = UILabel(strings.or("earn", app.currencyName), Role.title, 700, p.text, lines: 0)
+        title.accessibilityTraits = .header
+        let titles = UIStackView(arrangedSubviews: [appName, title])
         titles.axis = .vertical
-        titles.spacing = 3
-        bar.addArrangedSubview(titles)
+        titles.spacing = 2
+        titles.alignment = .leading
+        titles.semanticContentAttribute = view.semanticContentAttribute
         titles.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titles.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        bar.addArrangedSubview(titles)
 
         if let bal = options.balance ?? app.balance {
-            // The user's money, as the one filled pill in the header.
-            let pill = PrimaryButton(bal, p, size: Role.body)
-            pill.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
-            pill.isUserInteractionEnabled = false
-            pill.accessibilityTraits = .staticText
-            bar.addArrangedSubview(pill)
+            let pill = balancePill(bal, app.currencyName)
+            // At the accessibility sizes the balance goes under the title.
+            if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
+                titles.setCustomSpacing(8, after: title)
+                titles.addArrangedSubview(pill)
+            } else {
+                bar.addArrangedSubview(pill)
+            }
         }
 
         let close = PressButton(type: .custom)
@@ -235,38 +309,49 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         bar.addArrangedSubview(close)
         stack.addArrangedSubview(bar)
 
-        let tabs = UIStackView()
-        tabs.axis = .horizontal
-        tabs.spacing = 6
-        tabs.isLayoutMarginsRelativeArrangement = true
-        tabs.layoutMargins = UIEdgeInsets(top: 4, left: 16, bottom: 8, right: 16)
-        tabs.semanticContentAttribute = view.semanticContentAttribute
-        for (t, label) in [(Section.offers, strings.or("tabs.offers", "Offers")), (Section.history, strings.or("tabs.history", "History"))] {
-            let on = t == section
-            let b = PressButton(type: .custom)
-            b.setTitle(label, for: .normal)
-            b.titleLabel?.font = Fonts.font(Role.body, on ? 700 : 600)
-            b.setTitleColor(on ? p.text : p.faint, for: .normal)
-            b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
-            b.heightAnchor.constraint(greaterThanOrEqualToConstant: 36).isActive = true
-            b.hitOutset = 4
-            b.pill = true
-            if on {
-                b.backgroundColor = p.primarySoft
-                b.layer.borderWidth = 1
-                b.layer.borderColor = p.primary.withAlphaComponent(0.35).cgColor
-            }
-            b.accessibilityTraits = on ? [.button, .selected] : .button
-            b.addAction(for: .touchUpInside) { [weak self] in if !on { self?.switchTab(t) } }
-            tabs.addArrangedSubview(b)
-        }
-        tabs.addArrangedSubview(UIView())
-        stack.addArrangedSubview(tabs)
+        let segments = SegmentedTabs([strings.or("tabs.offers", "Offers"), strings.or("tabs.history", "History")],
+                                     selected: section == .offers ? 0 : 1, p, rtl: Fonts.rtl)
+        segments.accessibilityLabel = strings.or("tabs.label", "Offerwall sections")
+        segments.onChange = { [weak self] i in self?.switchTab(i == 0 ? .offers : .history) }
+        tabs = segments
+        let tabsWrap = UIStackView(arrangedSubviews: [segments])
+        tabsWrap.isLayoutMarginsRelativeArrangement = true
+        tabsWrap.layoutMargins = UIEdgeInsets(top: 2, left: 16, bottom: 10, right: 16)
+        stack.addArrangedSubview(tabsWrap)
 
         let rule = UIView()
         rule.backgroundColor = p.line
         rule.heightAnchor.constraint(equalToConstant: 1).isActive = true
         stack.addArrangedSubview(rule)
+        stack.addArrangedSubview(body)
+    }
+
+    /// The user's money as a solid primary pill: the figure, then the currency.
+    private func balancePill(_ balance: String, _ currency: String) -> UIView {
+        let p = palette
+        let figure = UILabel(balance, Role.rowTitle, 700, p.onPrimary)
+        figure.font = figure.font.withMonospacedDigits()
+        figure.semanticContentAttribute = .forceLeftToRight
+        let unit = UILabel(currency, Role.label, 600, p.onPrimary)
+        let row = UIStackView(arrangedSubviews: [figure, unit])
+        row.spacing = 4
+        row.alignment = .firstBaseline
+        row.semanticContentAttribute = view.semanticContentAttribute
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let pill = Pill()
+        pill.backgroundColor = p.primary
+        pill.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.topAnchor.constraint(equalTo: pill.topAnchor, constant: 6),
+            row.bottomAnchor.constraint(equalTo: pill.bottomAnchor, constant: -6),
+            row.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -12),
+        ])
+        pill.setContentCompressionResistancePriority(.required, for: .horizontal)
+        pill.setContentHuggingPriority(.required, for: .horizontal)
+        pill.isAccessibilityElement = true
+        pill.accessibilityLabel = "\(balance) \(currency)"
+        return pill
     }
 
     @objc private func closeTapped() {
@@ -274,21 +359,51 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         dismiss(animated: true)
     }
 
+    /// The thumb has already moved; the lists crossfade over `--motion-fast`
+    /// and History is fetched only when what is in hand is out of date.
     private func switchTab(_ t: Section) {
+        guard t != section else { return }
         section = t
+        view.endEditing(true)
+        show(t, animated: true)
         UIAccessibility.post(notification: .announcement, argument: t == .offers ? strings.or("tabs.offers", "Offers") : strings.or("tabs.history", "History"))
-        if let r = last { buildChrome(r) }
-        let spinner = UIActivityIndicatorView(style: .medium)
-        spinner.color = palette.muted
-        spinner.startAnimating()
-        stack.addArrangedSubview(spinner)
-        load()
+        if t == .history, !historyFresh, !historyLoading { loadHistory() }
+    }
+
+    private func show(_ t: Section, animated: Bool) {
+        tabs?.select(t == .offers ? 0 : 1, animated: animated)
+        let incoming: UIView = t == .offers ? table : historyBox
+        let outgoing: UIView = t == .offers ? historyBox : table
+        incoming.isHidden = false
+        guard animated else {
+            incoming.alpha = 1
+            outgoing.alpha = 0
+            outgoing.isHidden = true
+            return
+        }
+        UIView.animate(withDuration: Motion.fast, delay: 0, options: [.beginFromCurrentState], animations: {
+            incoming.alpha = 1
+            outgoing.alpha = 0
+        }, completion: { [weak self] _ in
+            // Only if no later switch brought it back meanwhile.
+            if self?.section == t { outgoing.isHidden = true }
+        })
+    }
+
+    private func pin(_ v: UIView, in parent: UIView) {
+        v.translatesAutoresizingMaskIntoConstraints = false
+        parent.addSubview(v)
+        NSLayoutConstraint.activate([
+            v.topAnchor.constraint(equalTo: parent.topAnchor),
+            v.bottomAnchor.constraint(equalTo: parent.bottomAnchor),
+            v.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+            v.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+        ])
     }
 
     // MARK: Offers
 
     private func buildOffers(_ r: WallResponse) {
-        stack.addArrangedSubview(table)
         table.tableHeaderView = controls(r)
         refilter()
         view.setNeedsLayout()
@@ -438,7 +553,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
     }
 
     func numberOfSections(in tableView: UITableView) -> Int { 1 }
-    func tableView(_ tableView: UITableView, numberOfRowsInSection _: Int) -> Int { self.section == .offers ? rows.count : historyRows.count }
+    func tableView(_ tableView: UITableView, numberOfRowsInSection _: Int) -> Int { tableView === historyTable ? historyRows.count : rows.count }
 
     private var rowStyle: RowStyle {
         RowStyle(palette: palette, strings: strings, currency: last?.app?.currencyName ?? "", rtl: Fonts.rtl,
@@ -449,12 +564,12 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         let style = rowStyle
         let cell: UITableViewCell
         let moving: UIView
-        if section == .history {
+        if tableView === historyTable {
             let c = tableView.dequeueReusableCell(withIdentifier: HistoryCell.id, for: indexPath) as! HistoryCell
             let r = historyRows[indexPath.row]
             c.configure(r, date: r.at.flatMap(shortDate), style)
-            cell = c
-            moving = c.row
+            c.contentView.semanticContentAttribute = view.semanticContentAttribute
+            return c
         } else {
             switch rows[indexPath.row] {
             case .offer(let o):
@@ -496,12 +611,12 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     /// The whole row is the button: it presses like one (see OfferCell).
     func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
-        guard section == .offers, indexPath.row < rows.count, case .offer = rows[indexPath.row] else { return false }
+        guard tableView === table, indexPath.row < rows.count, case .offer = rows[indexPath.row] else { return false }
         return true
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard section == .offers, case .offer(let o) = rows[indexPath.row] else { return }
+        guard tableView === table, case .offer(let o) = rows[indexPath.row] else { return }
         openDetail(o.id)
     }
 
@@ -597,18 +712,13 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
 
     private var historyRows: [HistoryRow] = []
 
-    private func buildHistory(_ rows: [HistoryRow]) {
-        historyRows = rows
-        if rows.isEmpty {
-            let empty = EmptyContent()
-            empty.configure(strings["history.empty.title"], strings["history.empty.body"], palette)
-            stack.addArrangedSubview(empty)
-            stack.addArrangedSubview(UIView())
-            return
-        }
-        stack.addArrangedSubview(table)
-        table.tableHeaderView = nil
-        table.reloadData()
+    /// The History list from what is in hand: rows, the empty state, or the
+    /// spinner while the first answer is on its way.
+    private func applyHistory() {
+        historyEmpty.configure(strings["history.empty.title"], strings["history.empty.body"], palette)
+        historyEmpty.isHidden = historyAt == nil || !historyRows.isEmpty
+        historyTable.isHidden = historyRows.isEmpty
+        historyTable.reloadData()
     }
 
     /// "14 Oct" the way the wall's language writes it, not the device's. The

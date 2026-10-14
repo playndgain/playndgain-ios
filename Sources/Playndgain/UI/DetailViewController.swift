@@ -209,8 +209,8 @@ final class DetailViewController: UIViewController {
         col.setCustomSpacing(20, after: col.arrangedSubviews.last!)
         col.addArrangedSubview(box)
 
-        // The one primary on the sheet, and the one glow on the wall.
-        let start = PrimaryButton(strings.or("offer.start", "Start this offer"), p, size: Role.button, glow: true)
+        // The one primary on the sheet.
+        let start = PrimaryButton(strings.or("offer.start", "Start this offer"), p, size: Role.button)
         start.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
         start.titleLabel?.numberOfLines = 0
         start.addAction(for: .touchUpInside) { [weak self] in

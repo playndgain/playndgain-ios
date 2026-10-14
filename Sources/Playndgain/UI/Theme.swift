@@ -15,9 +15,6 @@ struct Palette {
     var tile: UIColor { Colors.mix(text, card, 0.08) }
     var raise: UIColor { Colors.mix(text, card, 0.04) }
     var primarySoft: UIColor { Colors.mix(primary, card, 0.14) }
-    /// The two stops of `--wall-primary-fill`.
-    var primaryHi: UIColor { Colors.mix(primary, .white, 0.84) }
-    var primaryLo: UIColor { Colors.mix(primary, .black, 0.82) }
     var ink: UIColor { text }
     var onInk: UIColor { bg }
 
@@ -195,57 +192,20 @@ final class PressControl: UIControl {
     }
 }
 
-/// `--wall-primary-fill`: the publisher's colour as two stops at 135 degrees.
-final class GradientView: UIView {
-    override class var layerClass: AnyClass { CAGradientLayer.self }
-
-    init(_ p: Palette) {
-        super.init(frame: .zero)
-        let g = layer as! CAGradientLayer
-        g.colors = [p.primaryHi.cgColor, p.primaryLo.cgColor]
-        g.startPoint = CGPoint(x: 0, y: 0)
-        g.endPoint = CGPoint(x: 1, y: 1)
-        isUserInteractionEnabled = false
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-}
-
-/// A pill filled with the primary gradient, the on-primary label over it, and
-/// optionally the wall's one glow under it (`--wall-glow`: a 1px ring at 25%
-/// and a soft drop of the same colour). Only Start carries the glow.
+/// The primary action: a solid pill in the publisher's colour with the
+/// on-primary label. No gradient, no glow, no shadow; it presses like every
+/// other control.
 final class PrimaryButton: PressButton {
-    private let fill: GradientView
-
-    init(_ title: String, _ p: Palette, size: CGFloat = 15, glow: Bool = false) {
-        fill = GradientView(p)
+    init(_ title: String, _ p: Palette, size: CGFloat = 15) {
         super.init(frame: .zero)
         setTitle(title, for: .normal)
         titleLabel?.font = Fonts.font(size, 600)
         setTitleColor(p.onPrimary, for: .normal)
-        fill.clipsToBounds = true
-        insertSubview(fill, at: 0)
-        if glow {
-            fill.layer.borderWidth = 1
-            fill.layer.borderColor = p.primary.withAlphaComponent(0.25).cgColor
-            layer.shadowColor = p.primary.cgColor
-            layer.shadowOpacity = 0.55
-            layer.shadowOffset = CGSize(width: 0, height: 10)
-            layer.shadowRadius = 12
-        }
+        backgroundColor = p.primary
+        pill = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        fill.frame = bounds
-        fill.layer.cornerRadius = bounds.height / 2
-        if layer.shadowOpacity > 0 {
-            layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: bounds.height / 2).cgPath
-        }
-        sendSubviewToBack(fill)
-    }
 }
 
 enum Symbols {
@@ -256,35 +216,120 @@ enum Symbols {
     }
 }
 
-/// A filter pill that changes state in place: the selected category takes
-/// the primary gradient, the rest are hairlines; a selected sort takes the tile.
+/// A filter pill that changes state in place: a selected category or sort
+/// takes the solid primary with the on-primary label; the categories at rest
+/// are hairlines, the sorts at rest plain words.
 final class ChipButton: PressButton {
-    private var fill: GradientView?
-
     func style(on: Bool, ink: Bool, _ p: Palette) {
-        if ink {
-            if fill == nil {
-                let g = GradientView(p)
-                g.clipsToBounds = true
-                insertSubview(g, at: 0)
-                fill = g
-            }
-            fill?.isHidden = !on
-            setTitleColor(on ? p.onPrimary : p.faint, for: .normal)
-            layer.borderWidth = on ? 0 : 1
-            layer.borderColor = p.line.cgColor
-        } else {
-            setTitleColor(on ? p.text : p.faint, for: .normal)
-            backgroundColor = on ? p.tile : .clear
-        }
+        setTitleColor(on ? p.onPrimary : p.faint, for: .normal)
+        backgroundColor = on ? p.primary : .clear
+        layer.borderWidth = ink && !on ? 1 : 0
+        layer.borderColor = p.line.cgColor
         accessibilityTraits = on ? [.button, .selected] : .button
     }
+}
+
+/// Offers and History as one segmented control: a tile track with a thumb in
+/// the primary tint that slides to the chosen segment over `--motion-base`
+/// (at once under Reduce Motion). VoiceOver reads each segment the way it
+/// reads a UISegmentedControl's: "Offers, selected, button, 1 of 2".
+final class SegmentedTabs: UIControl {
+    private let track = UIStackView()
+    private let thumb = UIView()
+    private var buttons: [UIButton] = []
+    private let palette: Palette
+    private(set) var selectedIndex: Int
+    var onChange: ((Int) -> Void)?
+
+    init(_ titles: [String], selected: Int, _ p: Palette, rtl: Bool) {
+        palette = p
+        selectedIndex = selected
+        super.init(frame: .zero)
+        backgroundColor = p.tile
+        thumb.backgroundColor = p.primarySoft
+        thumb.layer.borderWidth = 1
+        thumb.layer.borderColor = p.primary.withAlphaComponent(0.35).cgColor
+        thumb.isUserInteractionEnabled = false
+        addSubview(thumb)
+        track.axis = .horizontal
+        track.distribution = .fillEqually
+        track.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+        track.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(track)
+        NSLayoutConstraint.activate([
+            track.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            track.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            track.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 3),
+            track.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -3),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+        ])
+        for (i, title) in titles.enumerated() {
+            let b = UIButton(type: .custom)
+            b.setTitle(title, for: .normal)
+            b.titleLabel?.font = Fonts.font(Role.body, 600)
+            b.titleLabel?.adjustsFontForContentSizeCategory = true
+            b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+            b.addAction(for: .touchUpInside) { [weak self] in self?.choose(i) }
+            b.addAction(for: .touchDown) { [weak b] in UIView.animate(withDuration: Motion.fast) { b?.alpha = Press.dim } }
+            b.addAction(for: [.touchUpInside, .touchUpOutside, .touchCancel]) { [weak b] in UIView.animate(withDuration: Motion.fast) { b?.alpha = 1 } }
+            buttons.append(b)
+            track.addArrangedSubview(b)
+        }
+        // Only the segments themselves, not their title labels a second time.
+        accessibilityElements = buttons
+        for (i, b) in buttons.enumerated() {
+            b.accessibilityValue = rtl ? "\(i + 1) من \(titles.count)" : "\(i + 1) of \(titles.count)"
+        }
+        restyle()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isAccessibilityElement: Bool { get { false } set {} }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard let f = fill else { return }
-        f.frame = bounds
-        f.layer.cornerRadius = bounds.height / 2
-        sendSubviewToBack(f)
+        layer.cornerRadius = bounds.height / 2
+        placeThumb()
+    }
+
+    private func placeThumb() {
+        guard selectedIndex < buttons.count else { return }
+        let f = convert(buttons[selectedIndex].frame, from: track)
+        thumb.frame = f
+        thumb.layer.cornerRadius = f.height / 2
+    }
+
+    private func choose(_ i: Int) {
+        guard i != selectedIndex else { return }
+        select(i, animated: true)
+        onChange?(i)
+    }
+
+    func select(_ i: Int, animated: Bool) {
+        selectedIndex = i
+        restyle()
+        layoutIfNeeded()
+        guard animated, Motion.enabled else { return placeThumb() }
+        UIView.animate(withDuration: Motion.base, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: {
+            CATransaction.setAnimationTimingFunction(Motion.easeOut)
+            self.placeThumb()
+        })
+    }
+
+    private func restyle() {
+        for (i, b) in buttons.enumerated() {
+            let on = i == selectedIndex
+            b.setTitleColor(on ? palette.text : palette.muted, for: .normal)
+            b.accessibilityTraits = on ? [.button, .selected] : .button
+        }
+    }
+}
+
+/// A view rounded to a full pill at whatever height it ends up.
+final class Pill: UIView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.height / 2
     }
 }

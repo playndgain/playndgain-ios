@@ -34,6 +34,7 @@ final class ExampleViewController: UIViewController, PlayndgainDelegate {
             ("secret", "Secret: local testing only, never ship this", ""),
             ("lang", "Language (en / ar, blank = device)", d.string(forKey: "lang") ?? ""),
             ("sub1", "sub1 (optional)", "sample"),
+            ("balance", "Balance shown in the header (optional)", d.string(forKey: "balance") ?? ""),
         ] {
             let f = UITextField()
             f.placeholder = placeholder
@@ -80,6 +81,7 @@ final class ExampleViewController: UIViewController, PlayndgainDelegate {
         }
         Playndgain.show(from: self, options: PlayndgainOptions(
             language: text("lang").isEmpty ? nil : text("lang"),
+            balance: text("balance").isEmpty ? nil : text("balance"),
             subIds: text("sub1").isEmpty ? [] : [text("sub1")]
         ))
     }
