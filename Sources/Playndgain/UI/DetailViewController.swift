@@ -29,7 +29,12 @@ final class DetailViewController: UIViewController {
 
     /// A detent the height of the content, under the large one. iOS 15 has
     /// no custom detents: medium for a notice, large for an offer there.
-    func configureSheet() {
+    func configureSheet(width: CGFloat) {
+        // Measure before presenting, so the first detent asked for is the
+        // right one and the sheet does not open tall and then settle.
+        loadViewIfNeeded()
+        view.frame = CGRect(x: 0, y: 0, width: width, height: 1000)
+        view.layoutIfNeeded()
         guard let s = sheetPresentationController else { return }
         s.prefersGrabberVisible = true
         s.preferredCornerRadius = palette.radius * 1.8

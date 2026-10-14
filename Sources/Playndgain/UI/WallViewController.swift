@@ -795,7 +795,7 @@ final class WallViewController: UIViewController, UITableViewDataSource, UITable
         let sheet = DetailViewController(response: r, palette: palette, strings: r.strings.root == nil ? strings : r.strings, currency: last?.app?.currencyName ?? "") { [weak self] url, name, opening in
             self?.dismiss(animated: true) { self?.startOffer(url, name: name, opening: opening) }
         }
-        sheet.configureSheet()
+        sheet.configureSheet(width: min(view.bounds.width, 600))
         present(sheet, animated: true)
     }
 
