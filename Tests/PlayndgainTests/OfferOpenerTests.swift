@@ -194,3 +194,31 @@ final class OfferFlowTests: XCTestCase {
         XCTAssertTrue(flow.pendingStore?.delegate === flow)
     }
 }
+
+/// A store sheet that has already closed itself but still names its old
+/// presenter, as the system sheet does when its X is tapped on a device.
+private final class ClosedStoreSheet: SKStoreProductViewController {
+    weak var formerPresenter: UIViewController?
+    override var presentingViewController: UIViewController? { formerPresenter }
+}
+
+final class StoreSheetCloseTests: XCTestCase {
+    func testAClosedSheetIsNotDismissedAgainFromTheWall() {
+        let wall = UIViewController()
+        let store = ClosedStoreSheet()
+        store.formerPresenter = wall
+        XCTAssertFalse(OfferFlow.shouldDismiss(store, host: wall), "dismissing from the wall would close the wall")
+        XCTAssertFalse(OfferFlow.shouldDismiss(store, host: nil))
+    }
+
+    func testASheetTheWallStillShowsIsDismissed() {
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        let wall = UIViewController()
+        window.rootViewController = wall
+        window.makeKeyAndVisible()
+        let store = SKStoreProductViewController()
+        wall.present(store, animated: false)
+        XCTAssertTrue(wall.presentedViewController === store)
+        XCTAssertTrue(OfferFlow.shouldDismiss(store, host: wall))
+    }
+}

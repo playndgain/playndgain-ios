@@ -140,8 +140,16 @@ final class OfferFlow: NSObject, SKStoreProductViewControllerDelegate, UIAdaptiv
     }
 
     func productViewControllerDidFinish(_ store: SKStoreProductViewController) {
-        store.presentingViewController?.dismiss(animated: true)
+        if Self.shouldDismiss(store, host: host) { store.dismiss(animated: true) }
         storeClosed()
+    }
+
+    /// Close the store sheet only while the wall still shows it. On a device
+    /// the sheet closes itself for its X and can still name the wall as its
+    /// presenter: dismissing from there closed the whole wall.
+    static func shouldDismiss(_ store: UIViewController, host: UIViewController?) -> Bool {
+        guard let host = host, host.presentedViewController === store else { return false }
+        return !store.isBeingDismissed
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
